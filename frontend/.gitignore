@@ -1,25 +1,17 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Environment
+.env
+backend/.env
+frontend/.env
 
+# Node modules
 node_modules
-dist
-dist-ssr
-*.local
+backend/node_modules
+frontend/node_modules
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# Build
+dist
+frontend/dist
+backend/dist
+
+# Mac
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-printf "\n# env\n.env\nbackend/.env\nfrontend/.env\n\n# deps\nnode_modules\nbackend/node_modules\nfrontend/node_modules\n\n# build\n/dist\nfrontend/dist\n" >> .gitignore
