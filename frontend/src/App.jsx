@@ -7,6 +7,7 @@ function badgeClass(verdict) {
   if (verdict === "fiable") return "badge gradient-green";
   if (verdict === "à vérifier") return "badge gradient-orange";
   if (verdict === "douteux") return "badge gradient-red";
+  if (verdict === "contradictoire") return "badge gradient-red";
   return "badge gradient-gray";
 }
 
@@ -15,16 +16,27 @@ function getVerdictIcon(verdict) {
   if (verdict === "fiable") return "✅";
   if (verdict === "à vérifier") return "⚠️";
   if (verdict === "douteux") return "❌";
+  if (verdict === "contradictoire") return "🔥";
   return "ℹ️";
 }
 
 /* ---------- CLEAN MARKDOWN ---------- */
 function clean(text) {
-  return (text || "")
+  if (!text) return "";
+  // Enlever les marqueurs d'erreur
+  if (text.startsWith("[Erreur")) return text;
+  
+  return text
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\n{2,}/g, "\n")
     .trim();
+}
+
+/* ---------- TRONQUER TEXTE LONG ---------- */
+function truncate(text, maxLength = 300) {
+  if (!text || text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + "...";
 }
 
 export default function App() {
@@ -32,7 +44,7 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState("analysis"); // analysis, history, settings
+  const [activeTab, setActiveTab] = useState("analysis");
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -47,9 +59,10 @@ export default function App() {
     setLoading(true);
     try {
       const { data } = await api.post("/api/verify", { question });
+      console.log("Réponse API:", data); // Pour debug
       setResult(data);
-      setActiveTab("analysis"); // Reste sur l'onglet analyse après soumission
     } catch (err) {
+      console.error("Erreur API:", err);
       setError(
         err?.response?.data?.error ||
         err?.message ||
@@ -62,7 +75,7 @@ export default function App() {
 
   return (
     <div className="dashboard">
-      {/* Barre latérale gauche - Fenêtre de navigation */}
+      {/* Barre latérale gauche */}
       <div className="sidebar">
         <div className="sidebar-header">
           <div className="logo">
@@ -112,7 +125,7 @@ export default function App() {
 
       {/* Contenu principal */}
       <div className="main-content">
-        {/* Barre d'outils supérieure */}
+        {/* Barre d'outils */}
         <div className="toolbar">
           <div className="window-controls">
             <span className="window-dot red" />
@@ -142,7 +155,7 @@ export default function App() {
                       Posez votre question
                     </label>
                     <textarea
-                      placeholder="Ex: Est-ce que la terre est ronde ?"
+                      placeholder="Ex: Qui est Cristiano Ronaldo ?"
                       value={question}
                       onChange={(e) => setQuestion(e.target.value)}
                       rows={3}
@@ -164,10 +177,7 @@ export default function App() {
                           </>
                         ) : (
                           <>
-                            Analyser
-                            <svg className="btn-icon" viewBox="0 0 24 24">
-                              <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" fill="none"/>
-                            </svg>
+                            Analyser →
                           </>
                         )}
                       </button>
@@ -185,9 +195,17 @@ export default function App() {
 
               {result && (
                 <div className="results-panel">
-                  {/* Score principal */}
+                  {/* === SCORE FINAL GLOBAL === */}
                   <div className="score-widget">
+                    <div className="score-header">
+                      <h2 className="score-title">Score de fiabilité</h2>
+                      <span className={`verdict-badge-large ${badgeClass(result.verdict)}`}>
+                        {getVerdictIcon(result.verdict)} {result.verdict}
+                      </span>
+                    </div>
+
                     <div className="score-main">
+                      {/* Cercle de progression */}
                       <div className="score-circle-large">
                         <svg viewBox="0 0 100 100">
                           <circle cx="50" cy="50" r="45" className="circle-bg" />
@@ -196,64 +214,94 @@ export default function App() {
                             className="circle-progress"
                             style={{
                               strokeDasharray: `${2 * Math.PI * 45}`,
-                              strokeDashoffset: `${2 * Math.PI * 45 * (1 - result.finalScore / 100)}`,
+                              strokeDashoffset: `${2 * Math.PI * 45 * (1 - (result.finalScore || 0) / 100)}`,
                             }}
                           />
                         </svg>
-                        <span className="score-value">{result.finalScore}%</span>
+                        <span className="score-value">{result.finalScore || 0}%</span>
                       </div>
-                      <div className="score-info">
-                        <span className={`verdict-badge ${badgeClass(result.verdict)}`}>
-                          {getVerdictIcon(result.verdict)} {result.verdict}
-                        </span>
-                        {result.agreementScore != null && (
-                          <div className="agreement-info">
-                            <span className="agreement-label">Accord entre IA</span>
-                            <span className="agreement-value">{result.agreementScore}%</span>
-                            <div className="agreement-bar">
-                              <div 
-                                className="agreement-fill"
-                                style={{ width: `${result.agreementScore}%` }}
-                              />
+
+                      {/* Informations sur l'accord */}
+                      <div className="score-details">
+                        {result.agreementScore != null ? (
+                          <>
+                            <div className="agreement-item">
+                              <span className="agreement-label">Accord entre IA</span>
+                              <span className="agreement-value-large">{result.agreementScore}%</span>
+                              <div className="progress-bar-small">
+                                <div 
+                                  className="progress-fill"
+                                  style={{ width: `${result.agreementScore}%` }}
+                                />
+                              </div>
                             </div>
+                            
+                            <div className="score-note">
+                              <span className="note-icon">ℹ️</span>
+                              <span className="note-text">
+                                Score final = moyenne du score OpenAI et de l'accord
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="single-model-note">
+                            Mode mono-IA (Gemini non disponible)
                           </div>
                         )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Alertes contextuelles */}
-                  {result.verdict === "douteux" && (
+                  {/* === ALERTES CONTEXTUELLES BASÉES SUR LE SCORE FINAL === */}
+                  {result.finalScore < 40 && (
                     <div className="alert-card alert-red">
                       <span className="alert-icon-large">🚨</span>
                       <div className="alert-content">
                         <strong>Divergence critique détectée</strong>
-                        <p>Les IA ne sont pas d'accord. Une vérification manuelle est recommandée.</p>
+                        <p>
+                          Score de fiabilité faible ({result.finalScore}%). 
+                          {result.agreementScore 
+                            ? ` Accord entre IA: ${result.agreementScore}%. ` 
+                            : " "}
+                          Une vérification manuelle est recommandée.
+                        </p>
                       </div>
                     </div>
                   )}
 
-                  {result.verdict === "à vérifier" && (
+                  {result.finalScore >= 40 && result.finalScore < 65 && (
                     <div className="alert-card alert-orange">
                       <span className="alert-icon-large">⚠️</span>
                       <div className="alert-content">
                         <strong>Vérification recommandée</strong>
-                        <p>La réponse est plausible mais nécessite une confirmation.</p>
+                        <p>
+                          Score de fiabilité moyen ({result.finalScore}%). 
+                          {result.agreementScore 
+                            ? ` Accord entre IA: ${result.agreementScore}%. ` 
+                            : " "}
+                          La réponse est plausible mais nécessite une confirmation.
+                        </p>
                       </div>
                     </div>
                   )}
 
-                  {result.verdict === "fiable" && (
+                  {result.finalScore >= 65 && (
                     <div className="alert-card alert-green">
                       <span className="alert-icon-large">✅</span>
                       <div className="alert-content">
                         <strong>Résultat fiable</strong>
-                        <p>Les deux IA sont en accord sur cette réponse.</p>
+                        <p>
+                          Score de fiabilité élevé ({result.finalScore}%). 
+                          {result.agreementScore 
+                            ? ` Accord entre IA: ${result.agreementScore}%. ` 
+                            : " "}
+                          La réponse est probablement correcte.
+                        </p>
                       </div>
                     </div>
                   )}
 
-                  {/* Cartes des IA */}
+                  {/* === CARTES DES IA === */}
                   <div className="ia-grid">
                     {/* OpenAI */}
                     <div className="ia-card openai">
@@ -262,20 +310,25 @@ export default function App() {
                           <span className="ia-icon">🧠</span>
                           <h3>OpenAI</h3>
                         </div>
-                        <div className="ia-score">
+                        <div className="ia-score-badge">
                           Score: {result.openai?.analysis?.score ?? "—"}%
                         </div>
                       </div>
                       <div className="ia-card-body">
                         <p className="ia-response">
                           {result.openai?.answer
-                            ? clean(result.openai.answer)
+                            ? truncate(clean(result.openai.answer), 400)
                             : "—"}
                         </p>
                       </div>
-                      {!result.openai && (
-                        <div className="ia-card-footer warning">
-                          <span>⚠️ Configuration OpenAI manquante</span>
+                      {result.openai?.analysis?.details && (
+                        <div className="ia-card-footer">
+                          <span className="detail-item">
+                            📊 Pertinence: {result.openai.analysis.details.pertinence || 0}%
+                          </span>
+                          <span className="detail-item">
+                            📏 Longueur: {result.openai.analysis.wordCount || 0} mots
+                          </span>
                         </div>
                       )}
                     </div>
@@ -287,24 +340,33 @@ export default function App() {
                           <span className="ia-icon">🌐</span>
                           <h3>Gemini</h3>
                         </div>
-                        {result.gemini && (
-                          <div className="ia-badge success">✓ Active</div>
+                        {result.gemini && !result.gemini.answer?.startsWith("[Erreur") ? (
+                          <div className="ia-badge success">✓ Réponse reçue</div>
+                        ) : (
+                          <div className="ia-badge warning">⚠️ Non disponible</div>
                         )}
                       </div>
                       <div className="ia-card-body">
                         <p className="ia-response">
                           {result.gemini?.answer
-                            ? clean(result.gemini.answer)
+                            ? truncate(clean(result.gemini.answer), 400)
                             : "Gemini non disponible (clé API manquante ou quota dépassé)"}
                         </p>
                       </div>
-                      {!result.gemini && (
+                      {result.gemini?.answer?.startsWith("[Erreur") && (
                         <div className="ia-card-footer warning">
-                          <span>⚠️ Ajoutez GEMINI_API_KEY dans .env</span>
+                          <span>⚠️ Erreur Gemini: veuillez vérifier votre clé API</span>
                         </div>
                       )}
                     </div>
                   </div>
+
+                  {/* === TEMPS DE RÉPONSE === */}
+                  {result.responseTime && (
+                    <div className="response-time">
+                      ⏱️ Analyse terminée en {result.responseTime}ms
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -326,7 +388,7 @@ export default function App() {
                 <h4>Configuration des API</h4>
                 <div className="setting-item">
                   <span className="setting-label">OpenAI</span>
-                  <span className="setting-value">✓ Configuré</span>
+                  <span className="setting-value success">✓ Configuré</span>
                 </div>
                 <div className="setting-item">
                   <span className="setting-label">Gemini</span>
@@ -335,13 +397,14 @@ export default function App() {
               </div>
               
               <div className="settings-group">
-                <h4>Préférences</h4>
+                <h4>Informations</h4>
                 <div className="setting-item">
-                  <span className="setting-label">Mode sombre</span>
-                  <label className="toggle-switch">
-                    <input type="checkbox" defaultChecked />
-                    <span className="toggle-slider" />
-                  </label>
+                  <span className="setting-label">Version</span>
+                  <span className="setting-value">2.0.0</span>
+                </div>
+                <div className="setting-item">
+                  <span className="setting-label">Modèles</span>
+                  <span className="setting-value">GPT-4o-mini / Gemini-Pro</span>
                 </div>
               </div>
             </div>
