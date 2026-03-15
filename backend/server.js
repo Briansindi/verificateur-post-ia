@@ -2,15 +2,35 @@ import express from "express";
 import axios from "axios";
 import cors from "cors";
 import dotenv from "dotenv";
+import authRoutes from './routes/auth.js';
+import historyRoutes from './routes/history.js';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import connectDB from './config/database.js';  // ← IMPORT DE LA CONNEXION MONGODB
 
 dotenv.config();
+
+// Connexion à MongoDB
+connectDB();  // ← INITIALISATION DE LA CONNEXION
 
 const app = express();
 const PORT = process.env.PORT || 5050;
 
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
+
+// Middleware
+app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "http://localhost:5173" }));
+app.use(express.json());
+
+// Test route
+app.get("/", (req, res) => {
+  res.json({ 
+    status: "ok", 
+    service: "Vérificateur Multi-IA",
+    mongodb: "✅ connecté",
+    version: "2.0"
+  });
+});
 
 if (!OPENAI_KEY) {
   console.error("Missing OPENAI_API_KEY");
@@ -277,6 +297,9 @@ function tokenize(text) {
     .split(/\s+/)
     .filter(w => w.length > 2 && !stopwords.includes(w)); // Enlever les mots trop courts et stopwords
 }
+// Routes d'authentification et historique (à ajouter avant app.listen)
+app.use('/api/auth', authRoutes);
+app.use('/api/history', historyRoutes);
 
 /* ===================================================== */
 

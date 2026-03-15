@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api";
 import "./App.css";
+import { useAuth } from './context/AuthContext';
+import LoginModal from './components/LoginModal';
 
 /* ---------- BADGE STYLE ---------- */
 function badgeClass(verdict) {
@@ -41,13 +43,35 @@ function truncate(text, maxLength = 300) {
 /* ---------- COMPOSANT STATS ---------- */
 function StatsCard({ icon, label, value, color }) {
   return (
-    <div className="stats-card">
-      <span className="stats-icon">{icon}</span>
+    <div className="stats-card" style={{ '--stats-color': color }}>
+      <span className="stats-icon" style={{ background: `${color}20`, color }}>{icon}</span>
       <div className="stats-info">
         <span className="stats-label">{label}</span>
         <span className="stats-value" style={{ color }}>{value}</span>
       </div>
     </div>
+  );
+}
+
+/* ---------- COMPOSANT BOUTON UTILISATEUR ---------- */
+function UserButton({ onClick }) {
+  const { user, logout } = useAuth();
+  
+  if (user) {
+    return (
+      <div className="user-menu">
+        <span className="user-email">{user.email}</span>
+        <button onClick={logout} className="logout-btn">
+          Déconnexion
+        </button>
+      </div>
+    );
+  }
+  
+  return (
+    <button onClick={onClick} className="login-btn">
+      🔑 Connexion
+    </button>
   );
 }
 
@@ -59,14 +83,35 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("analysis");
   const [history, setHistory] = useState([]);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
   const [stats] = useState({
     totalQueries: 0,
     avgScore: 0,
     reliabilityRate: 0
   });
   
+  const { user, isAuthenticated } = useAuth();
   const resultsRef = useRef(null);
   const contentWindowRef = useRef(null);
+
+  // Charger l'historique depuis le backend si connecté
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchHistory();
+    }
+  }, [isAuthenticated]);
+
+  const fetchHistory = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const { data } = await api.get('/api/history', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setHistory(data);
+    } catch (error) {
+      console.error("Erreur chargement historique:", error);
+    }
+  };
 
   // Scroll to results after analysis
   useEffect(() => {
@@ -108,19 +153,46 @@ export default function App() {
 
     setLoading(true);
     try {
-      const { data } = await api.post("/api/verify", { question });
+      // Ajouter le token si connecté
+      const config = isAuthenticated 
+        ? { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }}
+        : {};
+      
+      const { data } = await api.post("/api/verify", { question }, config);
       console.log("Réponse API:", data);
       setResult(data);
       
-      // Add to history (local storage simulation)
-      const newHistoryItem = {
-        id: Date.now(),
-        question,
-        finalScore: data.finalScore,
-        verdict: data.verdict,
-        timestamp: new Date().toLocaleString()
-      };
-      setHistory(prev => [newHistoryItem, ...prev].slice(0, 10));
+      // Sauvegarder dans l'historique backend si connecté
+      if (isAuthenticated) {
+        try {
+          await api.post('/api/history', {
+            question: data.question,
+            finalScore: data.finalScore,
+            verdict: data.verdict,
+            agreementScore: data.agreementScore,
+            openaiAnswer: data.openai?.answer,
+            openaiScore: data.openai?.analysis?.score,
+            geminiAnswer: data.gemini?.answer,
+            geminiAvailable: !!data.gemini,
+            responseTime: data.responseTime
+          }, config);
+          
+          // Recharger l'historique
+          fetchHistory();
+        } catch (historyError) {
+          console.error("Erreur sauvegarde historique:", historyError);
+        }
+      } else {
+        // Sauvegarde locale temporaire si non connecté
+        const newHistoryItem = {
+          id: Date.now(),
+          question,
+          finalScore: data.finalScore,
+          verdict: data.verdict,
+          timestamp: new Date().toLocaleString()
+        };
+        setHistory(prev => [newHistoryItem, ...prev].slice(0, 10));
+      }
       
     } catch (err) {
       console.error("Erreur API:", err);
@@ -134,12 +206,27 @@ export default function App() {
     }
   };
 
-  const clearHistory = () => {
-    setHistory([]);
+  const clearHistory = async () => {
+    if (isAuthenticated) {
+      try {
+        const token = localStorage.getItem('token');
+        await api.delete('/api/history', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setHistory([]);
+      } catch (error) {
+        console.error("Erreur suppression historique:", error);
+      }
+    } else {
+      setHistory([]);
+    }
   };
 
   return (
     <div className="dashboard">
+      {/* Modal de connexion */}
+      {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
+
       {/* Scroll to top button */}
       {showScrollTop && (
         <button className="scroll-top-btn" onClick={scrollToTop}>
@@ -194,6 +281,7 @@ export default function App() {
         </div>
 
         <div className="sidebar-footer">
+          <UserButton onClick={() => setShowLogin(true)} />
           <div className="status-indicator">
             <span className="status-dot online" />
             <span className="status-text">API Connectée</span>
@@ -261,12 +349,7 @@ export default function App() {
                             Analyse en cours...
                           </>
                         ) : (
-                          <>
-                            <span>Analyser</span>
-                            <svg className="btn-icon" viewBox="0 0 24 24" width="18" height="18">
-                             
-                            </svg>
-                          </>
+                          "Analyser"
                         )}
                       </button>
                     </div>
@@ -511,7 +594,7 @@ export default function App() {
                   </div>
                   <div className="history-list">
                     {history.map((item) => (
-                      <div key={item.id} className="history-item">
+                      <div key={item.id || item._id} className="history-item">
                         <div className="history-item-header">
                           <span className="history-question">"{item.question}"</span>
                           <span className={`history-verdict ${badgeClass(item.verdict)}`}>
@@ -519,7 +602,9 @@ export default function App() {
                           </span>
                         </div>
                         <div className="history-item-footer">
-                          <span className="history-time">{item.timestamp}</span>
+                          <span className="history-time">
+                            {item.timestamp || new Date(item.createdAt).toLocaleString()}
+                          </span>
                           <span className="history-verdict-text">{item.verdict}</span>
                         </div>
                       </div>
@@ -530,7 +615,11 @@ export default function App() {
                 <div className="empty-state">
                   <span className="empty-icon">📋</span>
                   <h3>Aucun historique</h3>
-                  <p>Les analyses apparaîtront ici</p>
+                  <p>
+                    {isAuthenticated 
+                      ? "Vos analyses apparaîtront ici"
+                      : "Connectez-vous pour sauvegarder votre historique"}
+                  </p>
                 </div>
               )}
             </div>
@@ -564,12 +653,11 @@ export default function App() {
                   color="#22c55e"
                 />
                 <StatsCard 
-
                   icon="⚠️"
-
                   label="À vérifier"
                   value={history.filter(item => item.finalScore >= 40 && item.finalScore < 65).length}
-                  color="#f59e0b"  />
+                  color="#f59e0b"  
+                />
               </div>
 
               <div className="stats-chart-placeholder">
