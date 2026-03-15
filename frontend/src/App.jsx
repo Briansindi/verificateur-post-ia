@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "./api";
 import "./App.css";
 
@@ -23,7 +23,6 @@ function getVerdictIcon(verdict) {
 /* ---------- CLEAN MARKDOWN ---------- */
 function clean(text) {
   if (!text) return "";
-  // Enlever les marqueurs d'erreur
   if (text.startsWith("[Erreur")) return text;
   
   return text
@@ -39,12 +38,63 @@ function truncate(text, maxLength = 300) {
   return text.substring(0, maxLength) + "...";
 }
 
+/* ---------- COMPOSANT STATS ---------- */
+function StatsCard({ icon, label, value, color }) {
+  return (
+    <div className="stats-card">
+      <span className="stats-icon">{icon}</span>
+      <div className="stats-info">
+        <span className="stats-label">{label}</span>
+        <span className="stats-value" style={{ color }}>{value}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("analysis");
+  const [history, setHistory] = useState([]);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [stats] = useState({
+    totalQueries: 0,
+    avgScore: 0,
+    reliabilityRate: 0
+  });
+  
+  const resultsRef = useRef(null);
+  const contentWindowRef = useRef(null);
+
+  // Scroll to results after analysis
+  useEffect(() => {
+    if (result && resultsRef.current) {
+      resultsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [result]);
+
+  // Show/hide scroll to top button
+  useEffect(() => {
+    const handleScroll = () => {
+      if (contentWindowRef.current) {
+        setShowScrollTop(contentWindowRef.current.scrollTop > 300);
+      }
+    };
+    
+    const currentRef = contentWindowRef.current;
+    if (currentRef) {
+      currentRef.addEventListener("scroll", handleScroll);
+      return () => currentRef.removeEventListener("scroll", handleScroll);
+    }
+  }, []);
+
+  const scrollToTop = () => {
+    if (contentWindowRef.current) {
+      contentWindowRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -59,8 +109,19 @@ export default function App() {
     setLoading(true);
     try {
       const { data } = await api.post("/api/verify", { question });
-      console.log("Réponse API:", data); // Pour debug
+      console.log("Réponse API:", data);
       setResult(data);
+      
+      // Add to history (local storage simulation)
+      const newHistoryItem = {
+        id: Date.now(),
+        question,
+        finalScore: data.finalScore,
+        verdict: data.verdict,
+        timestamp: new Date().toLocaleString()
+      };
+      setHistory(prev => [newHistoryItem, ...prev].slice(0, 10));
+      
     } catch (err) {
       console.error("Erreur API:", err);
       setError(
@@ -73,8 +134,19 @@ export default function App() {
     }
   };
 
+  const clearHistory = () => {
+    setHistory([]);
+  };
+
   return (
     <div className="dashboard">
+      {/* Scroll to top button */}
+      {showScrollTop && (
+        <button className="scroll-top-btn" onClick={scrollToTop}>
+          ↑
+        </button>
+      )}
+
       {/* Barre latérale gauche */}
       <div className="sidebar">
         <div className="sidebar-header">
@@ -101,6 +173,15 @@ export default function App() {
           >
             <span className="nav-icon">📋</span>
             <span className="nav-label">Historique</span>
+            {history.length > 0 && <span className="nav-badge">{history.length}</span>}
+          </button>
+          
+          <button 
+            className={`nav-item ${activeTab === 'stats' ? 'active' : ''}`}
+            onClick={() => setActiveTab('stats')}
+          >
+            <span className="nav-icon">📈</span>
+            <span className="nav-label">Statistiques</span>
           </button>
           
           <button 
@@ -135,6 +216,7 @@ export default function App() {
           <div className="toolbar-title">
             {activeTab === 'analysis' && '🧠 Analyse Multi-IA'}
             {activeTab === 'history' && '📋 Historique des analyses'}
+            {activeTab === 'stats' && '📈 Statistiques'}
             {activeTab === 'settings' && '⚙️ Paramètres'}
           </div>
           <div className="toolbar-time">
@@ -142,11 +224,11 @@ export default function App() {
           </div>
         </div>
 
-        {/* Fenêtre de contenu */}
-        <div className="content-window">
+        {/* Fenêtre de contenu avec ref pour scroll */}
+        <div className="content-window" ref={contentWindowRef}>
           {activeTab === 'analysis' && (
             <div className="analysis-panel">
-              {/* Zone de saisie */}
+              {/* Zone de saisie améliorée */}
               <div className="input-panel">
                 <form onSubmit={onSubmit} className="analysis-form">
                   <div className="input-group">
@@ -154,13 +236,16 @@ export default function App() {
                       <span className="label-icon">💭</span>
                       Posez votre question
                     </label>
-                    <textarea
-                      placeholder="Ex: Qui est Cristiano Ronaldo ?"
-                      value={question}
-                      onChange={(e) => setQuestion(e.target.value)}
-                      rows={3}
-                      className={question.trim() ? "filled" : ""}
-                    />
+                    <div className="textarea-wrapper">
+                      <textarea
+                        placeholder="Ex: Qui est Cristiano Ronaldo ?"
+                        value={question}
+                        onChange={(e) => setQuestion(e.target.value)}
+                        rows={3}
+                        className={question.trim() ? "filled" : ""}
+                      />
+                      <div className="textarea-glow" />
+                    </div>
                     <div className="input-footer">
                       <span className="char-count">
                         {question.length} / 500
@@ -173,30 +258,56 @@ export default function App() {
                         {loading ? (
                           <>
                             <span className="spinner-small" />
-                            Analyse...
+                            Analyse en cours...
                           </>
                         ) : (
                           <>
-                            Analyser →
+                            <span>Analyser</span>
+                            <svg className="btn-icon" viewBox="0 0 24 24" width="18" height="18">
+                             
+                            </svg>
                           </>
                         )}
                       </button>
                     </div>
                   </div>
                 </form>
+
+                {/* Suggestions de questions */}
+                <div className="suggestions">
+                  <span className="suggestions-label">Suggestions:</span>
+                  <button 
+                    className="suggestion-chip"
+                    onClick={() => setQuestion("Qui est Lionel Messi ?")}
+                  >
+                    ⚽ Qui est Messi ?
+                  </button>
+                  <button 
+                    className="suggestion-chip"
+                    onClick={() => setQuestion("Quelle est la capitale de la France ?")}
+                  >
+                    🏛️ Capitale de la France
+                  </button>
+                  <button 
+                    className="suggestion-chip"
+                    onClick={() => setQuestion("Théorie de la relativité")}
+                  >
+                    🔬 Théorie de la relativité
+                  </button>
+                </div>
               </div>
 
               {error && (
-                <div className="error-message">
+                <div className="error-message animate-shake">
                   <span className="error-icon">⚠️</span>
                   <span>{error}</span>
                 </div>
               )}
 
               {result && (
-                <div className="results-panel">
-                  {/* === SCORE FINAL GLOBAL === */}
-                  <div className="score-widget">
+                <div className="results-panel" ref={resultsRef}>
+                  {/* === SCORE FINAL GLOBAL AVEC ANIMATION === */}
+                  <div className="score-widget animate-slideUp">
                     <div className="score-header">
                       <h2 className="score-title">Score de fiabilité</h2>
                       <span className={`verdict-badge-large ${badgeClass(result.verdict)}`}>
@@ -205,8 +316,8 @@ export default function App() {
                     </div>
 
                     <div className="score-main">
-                      {/* Cercle de progression */}
-                      <div className="score-circle-large">
+                      {/* Cercle de progression avec animation */}
+                      <div className="score-circle-large animate-pulse-on-load">
                         <svg viewBox="0 0 100 100">
                           <circle cx="50" cy="50" r="45" className="circle-bg" />
                           <circle 
@@ -252,9 +363,9 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* === ALERTES CONTEXTUELLES BASÉES SUR LE SCORE FINAL === */}
+                  {/* === ALERTES CONTEXTUELLES AVEC EFFET DE GLOW === */}
                   {result.finalScore < 40 && (
-                    <div className="alert-card alert-red">
+                    <div className="alert-card alert-red animate-slideIn">
                       <span className="alert-icon-large">🚨</span>
                       <div className="alert-content">
                         <strong>Divergence critique détectée</strong>
@@ -270,7 +381,7 @@ export default function App() {
                   )}
 
                   {result.finalScore >= 40 && result.finalScore < 65 && (
-                    <div className="alert-card alert-orange">
+                    <div className="alert-card alert-orange animate-slideIn">
                       <span className="alert-icon-large">⚠️</span>
                       <div className="alert-content">
                         <strong>Vérification recommandée</strong>
@@ -286,7 +397,7 @@ export default function App() {
                   )}
 
                   {result.finalScore >= 65 && (
-                    <div className="alert-card alert-green">
+                    <div className="alert-card alert-green animate-slideIn">
                       <span className="alert-icon-large">✅</span>
                       <div className="alert-content">
                         <strong>Résultat fiable</strong>
@@ -301,10 +412,10 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* === CARTES DES IA === */}
+                  {/* === CARTES DES IA AMÉLIORÉES === */}
                   <div className="ia-grid">
                     {/* OpenAI */}
-                    <div className="ia-card openai">
+                    <div className="ia-card openai animate-scaleIn">
                       <div className="ia-card-header">
                         <div className="ia-title">
                           <span className="ia-icon">🧠</span>
@@ -323,27 +434,38 @@ export default function App() {
                       </div>
                       {result.openai?.analysis?.details && (
                         <div className="ia-card-footer">
-                          <span className="detail-item">
-                            📊 Pertinence: {result.openai.analysis.details.pertinence || 0}%
-                          </span>
-                          <span className="detail-item">
-                            📏 Longueur: {result.openai.analysis.wordCount || 0} mots
-                          </span>
+                          <div className="footer-stats">
+                            <span className="detail-item" title="Pertinence">
+                              <span>📊</span> {result.openai.analysis.details.pertinence || 0}%
+                            </span>
+                            <span className="detail-item" title="Longueur">
+                              <span>📏</span> {result.openai.analysis.wordCount || 0} mots
+                            </span>
+                            {result.openai.analysis.details.fiabilite && (
+                              <span className="detail-item" title="Fiabilité">
+                                <span>🔒</span> {result.openai.analysis.details.fiabilite}%
+                              </span>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
 
                     {/* Gemini */}
-                    <div className="ia-card gemini">
+                    <div className="ia-card gemini animate-scaleIn">
                       <div className="ia-card-header">
                         <div className="ia-title">
                           <span className="ia-icon">🌐</span>
                           <h3>Gemini</h3>
                         </div>
                         {result.gemini && !result.gemini.answer?.startsWith("[Erreur") ? (
-                          <div className="ia-badge success">✓ Réponse reçue</div>
+                          <div className="ia-badge success">
+                            <span className="badge-dot" /> Réponse reçue
+                          </div>
                         ) : (
-                          <div className="ia-badge warning">⚠️ Non disponible</div>
+                          <div className="ia-badge warning">
+                            <span className="badge-dot warning" /> Non disponible
+                          </div>
                         )}
                       </div>
                       <div className="ia-card-body">
@@ -355,18 +477,23 @@ export default function App() {
                       </div>
                       {result.gemini?.answer?.startsWith("[Erreur") && (
                         <div className="ia-card-footer warning">
-                          <span>⚠️ Erreur Gemini: veuillez vérifier votre clé API</span>
+                          <span>⚠️ Erreur Gemini: vérifiez votre clé API</span>
                         </div>
                       )}
                     </div>
                   </div>
 
-                  {/* === TEMPS DE RÉPONSE === */}
-                  {result.responseTime && (
-                    <div className="response-time">
-                      ⏱️ Analyse terminée en {result.responseTime}ms
-                    </div>
-                  )}
+                  {/* === TEMPS DE RÉPONSE ET MÉTADONNÉES === */}
+                  <div className="response-meta">
+                    {result.responseTime && (
+                      <span className="response-time">
+                        ⏱️ {result.responseTime}ms
+                      </span>
+                    )}
+                    <span className="response-id">
+                      🆔 {Math.random().toString(36).substring(2, 8).toUpperCase()}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
@@ -374,10 +501,81 @@ export default function App() {
 
           {activeTab === 'history' && (
             <div className="history-panel">
-              <div className="empty-state">
-                <span className="empty-icon">📋</span>
-                <h3>Aucun historique</h3>
-                <p>Les analyses apparaîtront ici</p>
+              {history.length > 0 ? (
+                <>
+                  <div className="history-header">
+                    <h3>Historique des analyses</h3>
+                    <button className="clear-history-btn" onClick={clearHistory}>
+                      🗑️ Effacer
+                    </button>
+                  </div>
+                  <div className="history-list">
+                    {history.map((item) => (
+                      <div key={item.id} className="history-item">
+                        <div className="history-item-header">
+                          <span className="history-question">"{item.question}"</span>
+                          <span className={`history-verdict ${badgeClass(item.verdict)}`}>
+                            {item.finalScore}%
+                          </span>
+                        </div>
+                        <div className="history-item-footer">
+                          <span className="history-time">{item.timestamp}</span>
+                          <span className="history-verdict-text">{item.verdict}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="empty-state">
+                  <span className="empty-icon">📋</span>
+                  <h3>Aucun historique</h3>
+                  <p>Les analyses apparaîtront ici</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'stats' && (
+            <div className="stats-panel">
+              <h3>Statistiques d'utilisation</h3>
+              
+              <div className="stats-grid">
+                <StatsCard 
+                  icon="🔢"
+                  label="Requêtes totales"
+                  value={history.length}
+                  color="#3b82f6"
+                />
+                <StatsCard 
+                  icon="📊"
+                  label="Score moyen"
+                  value={history.length > 0 
+                    ? Math.round(history.reduce((acc, item) => acc + item.finalScore, 0) / history.length) + '%'
+                    : '—'}
+                  color="#8b5cf6"
+                />
+                <StatsCard 
+                  icon="✅"
+                  label="Taux de fiabilité"
+                  value={history.length > 0
+                    ? Math.round((history.filter(item => item.finalScore >= 65).length / history.length) * 100) + '%'
+                    : '—'}
+                  color="#22c55e"
+                />
+                <StatsCard 
+
+                  icon="⚠️"
+
+                  label="À vérifier"
+                  value={history.filter(item => item.finalScore >= 40 && item.finalScore < 65).length}
+                  color="#f59e0b"  />
+              </div>
+
+              <div className="stats-chart-placeholder">
+                <div className="chart-message">
+                  📈 Graphique d'évolution des scores (à venir)
+                </div>
               </div>
             </div>
           )}
@@ -388,11 +586,33 @@ export default function App() {
                 <h4>Configuration des API</h4>
                 <div className="setting-item">
                   <span className="setting-label">OpenAI</span>
-                  <span className="setting-value success">✓ Configuré</span>
+                  <span className="setting-value success">
+                    <span className="status-badge success" /> Configuré
+                  </span>
                 </div>
                 <div className="setting-item">
                   <span className="setting-label">Gemini</span>
-                  <span className="setting-value warning">Clé manquante</span>
+                  <span className="setting-value warning">
+                    <span className="status-badge warning" /> Clé manquante
+                  </span>
+                </div>
+              </div>
+              
+              <div className="settings-group">
+                <h4>Préférences d'affichage</h4>
+                <div className="setting-item">
+                  <span className="setting-label">Mode sombre</span>
+                  <label className="toggle-switch">
+                    <input type="checkbox" defaultChecked />
+                    <span className="toggle-slider" />
+                  </label>
+                </div>
+                <div className="setting-item">
+                  <span className="setting-label">Animations</span>
+                  <label className="toggle-switch">
+                    <input type="checkbox" defaultChecked />
+                    <span className="toggle-slider" />
+                  </label>
                 </div>
               </div>
               
@@ -405,6 +625,10 @@ export default function App() {
                 <div className="setting-item">
                   <span className="setting-label">Modèles</span>
                   <span className="setting-value">GPT-4o-mini / Gemini-Pro</span>
+                </div>
+                <div className="setting-item">
+                  <span className="setting-label">Dernière mise à jour</span>
+                  <span className="setting-value">{new Date().toLocaleDateString()}</span>
                 </div>
               </div>
             </div>
