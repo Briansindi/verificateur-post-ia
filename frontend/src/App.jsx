@@ -3,7 +3,7 @@ import { api } from "./api";
 import "./App.css";
 import { useAuth } from './context/AuthContext';
 import LoginModal from './components/LoginModal';
-
+import { useTheme } from './context/ThemeContext';
 /* ---------- BADGE STYLE ---------- */
 function badgeClass(verdict) {
   if (verdict === "fiable") return "badge gradient-green";
@@ -103,21 +103,6 @@ function UserButton({ onClick }) {
             <div className="user-email">{user.email}</div>
           </div>
         </div>
-        
-        {/* Stats rapides (optionnel) */}
-        <div className="user-stats">
-          <div className="stat-item">
-            <span className="stat-value">{user.totalQueries || 0}</span>
-            <span className="stat-label">Requêtes</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-value">
-              {user.totalQueries ? Math.min(100, Math.round(user.totalQueries * 10)) : 0}%
-            </span>
-            <span className="stat-label">Activité</span>
-          </div>
-        </div>
-        
         <button onClick={logout} className="logout-btn">
           <span>🚪</span>
           Déconnexion
@@ -152,7 +137,7 @@ export default function App() {
   const { user, isAuthenticated } = useAuth();
   const resultsRef = useRef(null);
   const contentWindowRef = useRef(null);
-
+  const { darkMode, toggleTheme } = useTheme();
   // Charger l'historique depuis le backend si connecté
   useEffect(() => {
     if (isAuthenticated) {
@@ -397,21 +382,29 @@ if (data.openai?.answer && data.gemini?.answer && !data.gemini.answer?.startsWit
       <div className="main-content">
         {/* Barre d'outils */}
         <div className="toolbar">
-          <div className="window-controls">
-            <span className="window-dot red" />
-            <span className="window-dot yellow" />
-            <span className="window-dot green" />
-          </div>
-          <div className="toolbar-title">
-            {activeTab === 'analysis' && '🧠 Analyse Multi-IA'}
-            {activeTab === 'history' && '📋 Historique des analyses'}
-            {activeTab === 'stats' && '📈 Statistiques'}
-            {activeTab === 'settings' && '⚙️ Paramètres'}
-          </div>
-          <div className="toolbar-time">
-            {new Date().toLocaleTimeString()}
-          </div>
-        </div>
+  <div className="window-controls">
+    <span className="window-dot red" />
+    <span className="window-dot yellow" />
+    <span className="window-dot green" />
+  </div>
+  <div className="toolbar-title">
+    {activeTab === 'analysis' && '🧠 Analyse Multi-IA'}
+    {/* ... */}
+  </div>
+  
+  {/* 👇 BOUTON DE THÈME */}
+  <button 
+    onClick={toggleTheme}
+    className="theme-toggle"
+    title={darkMode ? "Passer en mode clair" : "Passer en mode sombre"}
+  >
+    {darkMode ? '☀️' : '🌙'}
+  </button>
+  
+  <div className="toolbar-time">
+    {new Date().toLocaleTimeString()}
+  </div>
+</div>
 
         {/* Fenêtre de contenu avec ref pour scroll */}
         <div className="content-window" ref={contentWindowRef}>

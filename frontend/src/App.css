@@ -1,5 +1,12 @@
-/* Variables */
-:root {
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ===== MODE SOMBRE (DÉFAUT) ===== */
+body {
   --bg-dashboard: #0a0c14;
   --bg-sidebar: #0f1322;
   --bg-window: #151a2c;
@@ -12,27 +19,152 @@
   --accent-green: #22c55e;
   --accent-orange: #f59e0b;
   --accent-red: #ef4444;
-  --glow-blue: rgba(59, 130, 246, 0.5);
-  --glow-purple: rgba(139, 92, 246, 0.5);
-  --glow-green: rgba(34, 197, 94, 0.5);
-  --glow-orange: rgba(245, 158, 11, 0.5);
-  --glow-red: rgba(239, 68, 68, 0.5);
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* ===== MODE CLAIR ===== */
+body.light-mode {
+  --bg-dashboard: #f5f7fa;
+  --bg-sidebar: #ffffff;
+  --bg-window: #f8fafc;
+  --bg-card: #ffffff;
+  --border-color: #e2e8f0;
+  --text-primary: #0f172a;        /* Texte principal sombre */
+  --text-secondary: #475569;       /* Texte secondaire gris foncé */
+  --accent-blue: #2563eb;
+  --accent-purple: #7c3aed;
+  --accent-green: #16a34a;
+  --accent-orange: #d97706;
+  --accent-red: #dc2626;
 }
 
-body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: var(--bg-dashboard);
-  color: var(--text-primary);
-  height: 100vh;
-  overflow: hidden;
+/* Ajustements spécifiques pour le mode clair */
+body.light-mode .sidebar {
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.05);
 }
 
+body.light-mode .ia-card {
+  background: #ffffff;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+body.light-mode .input-panel {
+  background: #ffffff;
+}
+
+body.light-mode textarea {
+  background: #ffffff;
+  color: #0f172a;                  /* Texte dans textarea */
+  border-color: #e2e8f0;
+}
+
+body.light-mode .ia-response {
+  color: #334155;                   /* Texte des réponses IA */
+}
+
+body.light-mode .score-title,
+body.light-mode .agreement-label,
+body.light-mode .score-note,
+body.light-mode .single-model-note {
+  color: #475569;                   /* Textes informatifs */
+}
+
+body.light-mode .gpt-explanation {
+  color: #1e293b;                   /* Texte GPT */
+  background: rgba(0, 0, 0, 0.02);
+}
+
+body.light-mode .gpt-points li,
+body.light-mode .gpt-divergences li {
+  color: #334155;                   /* Points communs/divergences */
+}
+
+body.light-mode .history-question {
+  color: #0f172a;                   /* Questions dans historique */
+}
+
+body.light-mode .history-time {
+  color: #64748b;                   /* Timestamps */
+}
+
+body.light-mode .empty-state,
+body.light-mode .chart-message {
+  color: #64748b;                   /* Messages vides */
+}
+
+body.light-mode .search-input {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #e2e8f0;
+}
+
+body.light-mode .search-input::placeholder {
+  color: #94a3b8;
+}
+
+body.light-mode .stats-label {
+  color: #475569;
+}
+
+body.light-mode .stats-value {
+  color: #0f172a;
+}
+
+body.light-mode .setting-label {
+  color: #475569;
+}
+
+body.light-mode .setting-value {
+  color: #0f172a;
+}
+
+body.light-mode .modal-content {
+  background: #ffffff;
+}
+
+body.light-mode .form-group label {
+  color: #475569;
+}
+
+body.light-mode .form-group input {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #e2e8f0;
+}
+
+body.light-mode .user-name,
+body.light-mode .user-email {
+  color: #0f172a;
+}
+
+body.light-mode .stat-label {
+  color: #64748b;
+}
+
+body.light-mode .stat-value {
+  color: #2563eb;
+}
+
+body.light-mode .toolbar-title,
+body.light-mode .toolbar-time {
+  color: #475569;
+}
+
+body.light-mode .nav-item {
+  color: #64748b;
+}
+
+body.light-mode .nav-item:hover {
+  color: #0f172a;
+}
+
+body.light-mode .nav-item.active {
+  color: #2563eb;
+}
+
+body.light-mode .sidebar-info {
+  color: #64748b;
+  background: rgba(0, 0, 0, 0.02);
+}
 /* Dashboard Layout */
 .dashboard {
   display: flex;
