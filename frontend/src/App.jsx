@@ -4,6 +4,7 @@ import "./App.css";
 import { useAuth } from './context/AuthContext';
 import LoginModal from './components/LoginModal';
 import { useTheme } from './context/ThemeContext';
+
 /* ---------- BADGE STYLE ---------- */
 function badgeClass(verdict) {
   if (verdict === "fiable") return "badge gradient-green";
@@ -57,7 +58,6 @@ function StatsCard({ icon, label, value, color }) {
 function UserButton({ onClick }) {
   const { user, logout } = useAuth();
   
-  // Fonction pour obtenir les initiales
   const getInitials = () => {
     if (!user) return '';
     const first = user.firstName?.charAt(0).toUpperCase() || '';
@@ -65,22 +65,15 @@ function UserButton({ onClick }) {
     return `${first}${last}`;
   };
 
-  // Fonction pour obtenir une couleur cohérente basée sur l'email
   const getAvatarColor = () => {
     if (!user?.email) return '#3b82f6';
     
-    // Génère un hash simple à partir de l'email
     const hash = user.email.split('').reduce((acc, char) => {
       return acc + char.charCodeAt(0);
     }, 0);
     
     const colors = [
-      '#3b82f6', // bleu
-      '#8b5cf6', // violet
-      '#22c55e', // vert
-      '#f59e0b', // orange
-      '#ef4444', // rouge
-      '#ec4899', // rose
+      '#3b82f6', '#8b5cf6', '#22c55e', '#f59e0b', '#ef4444', '#ec4899'
     ];
     
     return colors[hash % colors.length];
@@ -128,6 +121,8 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+  const [selectedModel, setSelectedModel] = useState('chatgpt');
   const [stats] = useState({
     totalQueries: 0,
     avgScore: 0,
@@ -138,7 +133,7 @@ export default function App() {
   const resultsRef = useRef(null);
   const contentWindowRef = useRef(null);
   const { darkMode, toggleTheme } = useTheme();
-  // Charger l'historique depuis le backend si connecté
+
   useEffect(() => {
     if (isAuthenticated) {
       fetchHistory();
@@ -157,14 +152,12 @@ export default function App() {
     }
   };
 
-  // Scroll to results after analysis
   useEffect(() => {
     if (result && resultsRef.current) {
       resultsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [result]);
 
-  // Show/hide scroll to top button
   useEffect(() => {
     const handleScroll = () => {
       if (contentWindowRef.current) {
@@ -189,6 +182,7 @@ export default function App() {
     e.preventDefault();
     setError("");
     setResult(null);
+    setShowDetails(false);
 
     if (!question.trim() || question.trim().length < 5) {
       setError("La question doit contenir au moins 5 caractères.");
@@ -197,58 +191,45 @@ export default function App() {
 
     setLoading(true);
     try {
-      // Ajouter le token si connecté
       const config = isAuthenticated 
         ? { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }}
         : {};
       
-      // 1. Obtenir les réponses OpenAI et Gemini
-      const { data } = await api.post("/api/verify", { question }, config);
+      const { data } = await api.post("/api/verify", { 
+        question,
+        model: selectedModel 
+      }, config);
+      
       console.log("Réponse API:", data);
       
-      // 2. Si les deux IA ont répondu, demande une évaluation GPT
-    // 2. Si les deux IA ont répondu, demande une évaluation GPT
-if (data.openai?.answer && data.gemini?.answer && !data.gemini.answer?.startsWith("[Erreur")) {
-  try {
-    console.log("🔍 Appel au juge GPT...");
-    const judgeResponse = await api.post('/api/judge/evaluate', {
-      question,
-      answerA: data.openai.answer,
-      answerB: data.gemini.answer
-    }, config);
-    
-    console.log("✅ Évaluation GPT reçue:", judgeResponse.data);
-    
-    // 3. Enrichir les résultats avec l'évaluation GPT
-    if (judgeResponse.data) {
-      data.gptEvaluation = judgeResponse.data;
-      
-      // ✅ MOYENNE entre l'algorithme et GPT
-      const algoFinalScore = data.finalScore;
-      const algoAgreement = data.agreementScore;
-      
-      data.finalScore = Math.round((algoFinalScore + judgeResponse.data.fiabilite) / 2);
-      data.agreementScore = Math.round((algoAgreement + judgeResponse.data.accord) / 2);
-      data.verdict = judgeResponse.data.verdict; // On garde le verdict GPT
-      
-      console.log("✅ Scores moyennés:", {
-        algo: algoFinalScore,
-        gpt: judgeResponse.data.fiabilite,
-        final: data.finalScore,
-        agreement: data.agreementScore,
-        verdict: data.verdict
-      });
-    }
-    
-  } catch (judgeError) {
-    console.error("❌ Erreur juge GPT:", judgeError);
-    // On continue sans l'évaluation GPT
-  }
-}
+      if (data.openai?.answer && data.gemini?.answer && !data.gemini.answer?.startsWith("[Erreur")) {
+        try {
+          console.log("🔍 Appel au juge GPT...");
+          const judgeResponse = await api.post('/api/judge/evaluate', {
+            question,
+            answerA: data.openai.answer,
+            answerB: data.gemini.answer
+          }, config);
+          
+          console.log("✅ Évaluation GPT reçue:", judgeResponse.data);
+          
+          if (judgeResponse.data) {
+            data.gptEvaluation = judgeResponse.data;
+            
+            const algoFinalScore = data.finalScore;
+            const algoAgreement = data.agreementScore;
+            
+            data.finalScore = Math.round((algoFinalScore + judgeResponse.data.fiabilite) / 2);
+            data.agreementScore = Math.round((algoAgreement + judgeResponse.data.accord) / 2);
+            data.verdict = judgeResponse.data.verdict;
+          }
+        } catch (judgeError) {
+          console.error("❌ Erreur juge GPT:", judgeError);
+        }
+      }
       
       setResult(data);
       
-      // Sauvegarder dans l'historique backend si connecté
       if (isAuthenticated) {
         try {
           await api.post('/api/history', {
@@ -263,13 +244,11 @@ if (data.openai?.answer && data.gemini?.answer && !data.gemini.answer?.startsWit
             responseTime: data.responseTime
           }, config);
           
-          // Recharger l'historique
           fetchHistory();
         } catch (historyError) {
           console.error("Erreur sauvegarde historique:", historyError);
         }
       } else {
-        // Sauvegarde locale temporaire si non connecté
         const newHistoryItem = {
           id: Date.now(),
           question,
@@ -310,17 +289,14 @@ if (data.openai?.answer && data.gemini?.answer && !data.gemini.answer?.startsWit
 
   return (
     <div className="dashboard">
-      {/* Modal de connexion */}
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
 
-      {/* Scroll to top button */}
       {showScrollTop && (
         <button className="scroll-top-btn" onClick={scrollToTop}>
           ↑
         </button>
       )}
 
-      {/* Barre latérale gauche */}
       <div className="sidebar">
         <div className="sidebar-header">
           <div className="logo">
@@ -378,39 +354,36 @@ if (data.openai?.answer && data.gemini?.answer && !data.gemini.answer?.startsWit
         </div>
       </div>
 
-      {/* Contenu principal */}
       <div className="main-content">
-        {/* Barre d'outils */}
         <div className="toolbar">
-  <div className="window-controls">
-    <span className="window-dot red" />
-    <span className="window-dot yellow" />
-    <span className="window-dot green" />
-  </div>
-  <div className="toolbar-title">
-    {activeTab === 'analysis' && '🧠 Analyse Multi-IA'}
-    {/* ... */}
-  </div>
-  
-  {/* 👇 BOUTON DE THÈME */}
-  <button 
-    onClick={toggleTheme}
-    className="theme-toggle"
-    title={darkMode ? "Passer en mode clair" : "Passer en mode sombre"}
-  >
-    {darkMode ? '☀️' : '🌙'}
-  </button>
-  
-  <div className="toolbar-time">
-    {new Date().toLocaleTimeString()}
-  </div>
-</div>
+          <div className="window-controls">
+            <span className="window-dot red" />
+            <span className="window-dot yellow" />
+            <span className="window-dot green" />
+          </div>
+          <div className="toolbar-title">
+            {activeTab === 'analysis' && '🧠 Analyse Multi-IA'}
+            {activeTab === 'history' && '📋 Historique des analyses'}
+            {activeTab === 'stats' && '📈 Statistiques'}
+            {activeTab === 'settings' && '⚙️ Paramètres'}
+          </div>
+          
+          <button 
+            onClick={toggleTheme}
+            className="theme-toggle"
+            title={darkMode ? "Passer en mode clair" : "Passer en mode sombre"}
+          >
+            {darkMode ? '☀️' : '🌙'}
+          </button>
+          
+          <div className="toolbar-time">
+            {new Date().toLocaleTimeString()}
+          </div>
+        </div>
 
-        {/* Fenêtre de contenu avec ref pour scroll */}
         <div className="content-window" ref={contentWindowRef}>
           {activeTab === 'analysis' && (
             <div className="analysis-panel">
-              {/* Zone de saisie améliorée */}
               <div className="input-panel">
                 <form onSubmit={onSubmit} className="analysis-form">
                   <div className="input-group">
@@ -418,6 +391,37 @@ if (data.openai?.answer && data.gemini?.answer && !data.gemini.answer?.startsWit
                       <span className="label-icon">💭</span>
                       Posez votre question
                     </label>
+                    
+                    {/* SÉLECTEUR DE MODÈLE */}
+                    <div className="model-selector">
+                      <span className="model-selector-label">Choisir le modèle :</span>
+                      <div className="model-options">
+                        <label className={`model-option ${selectedModel === 'chatgpt' ? 'active' : ''}`}>
+                          <input
+                            type="radio"
+                            name="model"
+                            value="chatgpt"
+                            checked={selectedModel === 'chatgpt'}
+                            onChange={() => setSelectedModel('chatgpt')}
+                          />
+                          <span className="model-icon">🧠</span>
+                          <span className="model-name">ChatGPT</span>
+                        </label>
+                        
+                        <label className={`model-option ${selectedModel === 'gemini' ? 'active' : ''}`}>
+                          <input
+                            type="radio"
+                            name="model"
+                            value="gemini"
+                            checked={selectedModel === 'gemini'}
+                            onChange={() => setSelectedModel('gemini')}
+                          />
+                          <span className="model-icon">🌐</span>
+                          <span className="model-name">Gemini</span>
+                        </label>
+                      </div>
+                    </div>
+
                     <div className="textarea-wrapper">
                       <textarea
                         placeholder="Ex: Qui est Cristiano Ronaldo ?"
@@ -450,7 +454,6 @@ if (data.openai?.answer && data.gemini?.answer && !data.gemini.answer?.startsWit
                   </div>
                 </form>
 
-                {/* Suggestions de questions */}
                 <div className="suggestions">
                   <span className="suggestions-label">Suggestions:</span>
                   <button 
@@ -483,225 +486,248 @@ if (data.openai?.answer && data.gemini?.answer && !data.gemini.answer?.startsWit
 
               {result && (
                 <div className="results-panel" ref={resultsRef}>
-                  {/* === SCORE FINAL GLOBAL AVEC ANIMATION === */}
-                  <div className="score-widget animate-slideUp">
-                    <div className="score-header">
-                      <h2 className="score-title">Score de fiabilité</h2>
+                  {/* RÉSULTAT SIMPLIFIÉ */}
+                  <div className="result-simple">
+                    <div className="result-verdict">
                       <span className={`verdict-badge-large ${badgeClass(result.verdict)}`}>
                         {getVerdictIcon(result.verdict)} {result.verdict}
                       </span>
+                      <span className="result-score">{result.finalScore}%</span>
                     </div>
-
-                    <div className="score-main">
-                      {/* Cercle de progression avec animation */}
-                      <div className="score-circle-large animate-pulse-on-load">
-                        <svg viewBox="0 0 100 100">
-                          <circle cx="50" cy="50" r="45" className="circle-bg" />
-                          <circle 
-                            cx="50" cy="50" r="45" 
-                            className="circle-progress"
-                            style={{
-                              strokeDasharray: `${2 * Math.PI * 45}`,
-                              strokeDashoffset: `${2 * Math.PI * 45 * (1 - (result.finalScore || 0) / 100)}`,
-                            }}
-                          />
-                        </svg>
-                        <span className="score-value">{result.finalScore || 0}%</span>
-                      </div>
-
-                      {/* Informations sur l'accord */}
-                      <div className="score-details">
-                        {result.agreementScore != null ? (
-                          <>
-                            <div className="agreement-item">
-                              <span className="agreement-label">Accord entre IA</span>
-                              <span className="agreement-value-large">{result.agreementScore}%</span>
-                              <div className="progress-bar-small">
-                                <div 
-                                  className="progress-fill"
-                                  style={{ width: `${result.agreementScore}%` }}
-                                />
-                              </div>
-                            </div>
-                            
-                            <div className="score-note">
-                              <span className="note-icon">ℹ️</span>
-                              <span className="note-text">
-                                Score final = moyenne du score OpenAI et de l'accord
-                              </span>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="single-model-note">
-                            Mode mono-IA (Gemini non disponible)
-                          </div>
-                        )}
-                      </div>
+                    
+                    <div className="result-answer">
+                      <p>
+                        {selectedModel === 'chatgpt' 
+                          ? truncate(clean(result.openai?.answer), 400)
+                          : truncate(clean(result.gemini?.answer), 400)
+                        }
+                      </p>
                     </div>
+                    
+                    <button 
+                      className="details-toggle-btn"
+                      onClick={() => setShowDetails(!showDetails)}
+                    >
+                      {showDetails ? 'Masquer détails' : 'Voir détails'}
+                    </button>
                   </div>
 
-                  {/* === ÉVALUATION GPT === */}
-                  {result.gptEvaluation && (
-                    <div className="gpt-evaluation-card">
-                      <div className="gpt-header">
-                        <span className="gpt-icon">🤖</span>
-                        <h3>Analyse approfondie</h3>
-                      </div>
-                      <p className="gpt-explanation">{result.gptEvaluation.explication}</p>
-                      {result.gptEvaluation.points_communs && result.gptEvaluation.points_communs.length > 0 && (
-                        <div className="gpt-points">
-                          <strong>Points communs :</strong>
-                          <ul>
-                            {result.gptEvaluation.points_communs.map((point, i) => (
-                              <li key={i}>{point}</li>
-                            ))}
-                          </ul>
+                  {/* DÉTAILS (affichés conditionnellement) */}
+                  {showDetails && (
+                    <div className="details-panel">
+                      <h3>📊 Analyse détaillée</h3>
+                      
+                      {/* Score détaillé */}
+                      <div className="score-widget">
+                        <div className="score-header">
+                          <h2 className="score-title">Score de fiabilité</h2>
+                          <span className={`verdict-badge-large ${badgeClass(result.verdict)}`}>
+                            {getVerdictIcon(result.verdict)} {result.verdict}
+                          </span>
                         </div>
-                      )}
-                      {result.gptEvaluation.divergences && result.gptEvaluation.divergences.length > 0 && (
-                        <div className="gpt-divergences">
-                          <strong>Divergences :</strong>
-                          <ul>
-                            {result.gptEvaluation.divergences.map((div, i) => (
-                              <li key={i}>{div}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
 
-                  {/* === ALERTES CONTEXTUELLES === */}
-                  {result.finalScore < 40 && (
-                    <div className="alert-card alert-red animate-slideIn">
-                      <span className="alert-icon-large">🚨</span>
-                      <div className="alert-content">
-                        <strong>Divergence critique détectée</strong>
-                        <p>
-                          Score de fiabilité faible ({result.finalScore}%). 
-                          {result.agreementScore 
-                            ? ` Accord entre IA: ${result.agreementScore}%. ` 
-                            : " "}
-                          Une vérification manuelle est recommandée.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {result.finalScore >= 40 && result.finalScore < 65 && (
-                    <div className="alert-card alert-orange animate-slideIn">
-                      <span className="alert-icon-large">⚠️</span>
-                      <div className="alert-content">
-                        <strong>Vérification recommandée</strong>
-                        <p>
-                          Score de fiabilité moyen ({result.finalScore}%). 
-                          {result.agreementScore 
-                            ? ` Accord entre IA: ${result.agreementScore}%. ` 
-                            : " "}
-                          La réponse est plausible mais nécessite une confirmation.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {result.finalScore >= 65 && (
-                    <div className="alert-card alert-green animate-slideIn">
-                      <span className="alert-icon-large">✅</span>
-                      <div className="alert-content">
-                        <strong>Résultat fiable</strong>
-                        <p>
-                          Score de fiabilité élevé ({result.finalScore}%). 
-                          {result.agreementScore 
-                            ? ` Accord entre IA: ${result.agreementScore}%. ` 
-                            : " "}
-                          La réponse est probablement correcte.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* === CARTES DES IA === */}
-                  <div className="ia-grid">
-                    {/* OpenAI */}
-                    <div className="ia-card openai animate-scaleIn">
-                      <div className="ia-card-header">
-                        <div className="ia-title">
-                          <span className="ia-icon">🧠</span>
-                          <h3>OpenAI</h3>
-                        </div>
-                        <div className="ia-badge success">
-                            <span className="badge-dot" /> Réponse reçue
+                        <div className="score-main">
+                          <div className="score-circle-large">
+                            <svg viewBox="0 0 100 100">
+                              <circle cx="50" cy="50" r="45" className="circle-bg" />
+                              <circle 
+                                cx="50" cy="50" r="45" 
+                                className="circle-progress"
+                                style={{
+                                  strokeDasharray: `${2 * Math.PI * 45}`,
+                                  strokeDashoffset: `${2 * Math.PI * 45 * (1 - (result.finalScore || 0) / 100)}`,
+                                }}
+                              />
+                            </svg>
+                            <span className="score-value">{result.finalScore || 0}%</span>
                           </div>
-                      </div>
-                      <div className="ia-card-body">
-                        <p className="ia-response">
-                          {result.openai?.answer
-                            ? truncate(clean(result.openai.answer), 400)
-                            : "—"}
-                        </p>
-                      </div>
-                      {result.openai?.analysis?.details && (
-                        <div className="ia-card-footer">
-                          <div className="footer-stats">
-                            <span className="detail-item" title="Pertinence">
-                              <span>📊</span> {result.openai.analysis.details.pertinence || 0}%
-                            </span>
-                            <span className="detail-item" title="Longueur">
-                              <span>📏</span> {result.openai.analysis.wordCount || 0} mots
-                            </span>
-                            {result.openai.analysis.details.fiabilite && (
-                              <span className="detail-item" title="Fiabilité">
-                                <span>🔒</span> {result.openai.analysis.details.fiabilite}%
-                              </span>
+
+                          <div className="score-details">
+                            {result.agreementScore != null ? (
+                              <>
+                                <div className="agreement-item">
+                                  <span className="agreement-label">Accord entre IA</span>
+                                  <span className="agreement-value-large">{result.agreementScore}%</span>
+                                  <div className="progress-bar-small">
+                                    <div 
+                                      className="progress-fill"
+                                      style={{ width: `${result.agreementScore}%` }}
+                                    />
+                                  </div>
+                                </div>
+                                
+                                <div className="score-note">
+                                  <span className="note-icon">ℹ️</span>
+                                  <span className="note-text">
+                                    Score final = moyenne du score OpenAI et de l'accord
+                                  </span>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="single-model-note">
+                                Mode mono-IA (Gemini non disponible)
+                              </div>
                             )}
                           </div>
                         </div>
-                      )}
-                    </div>
+                      </div>
 
-                    {/* Gemini */}
-                    <div className="ia-card gemini animate-scaleIn">
-                      <div className="ia-card-header">
-                        <div className="ia-title">
-                          <span className="ia-icon">🌐</span>
-                          <h3>Gemini</h3>
+                      {/* Évaluation GPT */}
+                      {result.gptEvaluation && (
+                        <div className="gpt-evaluation-card">
+                          <div className="gpt-header">
+                            <span className="gpt-icon">🤖</span>
+                            <h3>Analyse approfondie</h3>
+                          </div>
+                          <p className="gpt-explanation">{result.gptEvaluation.explication}</p>
+                          {result.gptEvaluation.points_communs && result.gptEvaluation.points_communs.length > 0 && (
+                            <div className="gpt-points">
+                              <strong>Points communs :</strong>
+                              <ul>
+                                {result.gptEvaluation.points_communs.map((point, i) => (
+                                  <li key={i}>{point}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {result.gptEvaluation.divergences && result.gptEvaluation.divergences.length > 0 && (
+                            <div className="gpt-divergences">
+                              <strong>Divergences :</strong>
+                              <ul>
+                                {result.gptEvaluation.divergences.map((div, i) => (
+                                  <li key={i}>{div}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
                         </div>
-                        {result.gemini && !result.gemini.answer?.startsWith("[Erreur") ? (
-                          <div className="ia-badge success">
-                            <span className="badge-dot" /> Réponse reçue
+                      )}
+
+                      {/* Alertes contextuelles */}
+                      {result.finalScore < 40 && (
+                        <div className="alert-card alert-red animate-slideIn">
+                          <span className="alert-icon-large">🚨</span>
+                          <div className="alert-content">
+                            <strong>Divergence critique détectée</strong>
+                            <p>
+                              Score de fiabilité faible ({result.finalScore}%). 
+                              {result.agreementScore 
+                                ? ` Accord entre IA: ${result.agreementScore}%. ` 
+                                : " "}
+                              Une vérification manuelle est recommandée.
+                            </p>
                           </div>
-                        ) : (
-                          <div className="ia-badge warning">
-                            <span className="badge-dot warning" /> Non disponible
+                        </div>
+                      )}
+
+                      {result.finalScore >= 40 && result.finalScore < 65 && (
+                        <div className="alert-card alert-orange animate-slideIn">
+                          <span className="alert-icon-large">⚠️</span>
+                          <div className="alert-content">
+                            <strong>Vérification recommandée</strong>
+                            <p>
+                              Score de fiabilité moyen ({result.finalScore}%). 
+                              {result.agreementScore 
+                                ? ` Accord entre IA: ${result.agreementScore}%. ` 
+                                : " "}
+                              La réponse est plausible mais nécessite une confirmation.
+                            </p>
                           </div>
+                        </div>
+                      )}
+
+                      {result.finalScore >= 65 && (
+                        <div className="alert-card alert-green animate-slideIn">
+                          <span className="alert-icon-large">✅</span>
+                          <div className="alert-content">
+                            <strong>Résultat fiable</strong>
+                            <p>
+                              Score de fiabilité élevé ({result.finalScore}%). 
+                              {result.agreementScore 
+                                ? ` Accord entre IA: ${result.agreementScore}%. ` 
+                                : " "}
+                              La réponse est probablement correcte.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Cartes IA */}
+                      <div className="ia-grid">
+                        <div className="ia-card openai animate-scaleIn">
+                          <div className="ia-card-header">
+                            <div className="ia-title">
+                              <span className="ia-icon">🧠</span>
+                              <h3>OpenAI</h3>
+                            </div>
+                            <div className="ia-badge success">
+                              <span className="badge-dot" /> Réponse reçue
+                            </div>
+                          </div>
+                          <div className="ia-card-body">
+                            <p className="ia-response">
+                              {result.openai?.answer
+                                ? truncate(clean(result.openai.answer), 400)
+                                : "—"}
+                            </p>
+                          </div>
+                          {result.openai?.analysis?.details && (
+                            <div className="ia-card-footer">
+                              <div className="footer-stats">
+                                <span className="detail-item" title="Pertinence">
+                                  <span>📊</span> {result.openai.analysis.details.pertinence || 0}%
+                                </span>
+                                <span className="detail-item" title="Longueur">
+                                  <span>📏</span> {result.openai.analysis.wordCount || 0} mots
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="ia-card gemini animate-scaleIn">
+                          <div className="ia-card-header">
+                            <div className="ia-title">
+                              <span className="ia-icon">🌐</span>
+                              <h3>Gemini</h3>
+                            </div>
+                            {result.gemini && !result.gemini.answer?.startsWith("[Erreur") ? (
+                              <div className="ia-badge success">
+                                <span className="badge-dot" /> Réponse reçue
+                              </div>
+                            ) : (
+                              <div className="ia-badge warning">
+                                <span className="badge-dot warning" /> Non disponible
+                              </div>
+                            )}
+                          </div>
+                          <div className="ia-card-body">
+                            <p className="ia-response">
+                              {result.gemini?.answer
+                                ? truncate(clean(result.gemini.answer), 400)
+                                : "Gemini non disponible (clé API manquante ou quota dépassé)"}
+                            </p>
+                          </div>
+                          {result.gemini?.answer?.startsWith("[Erreur") && (
+                            <div className="ia-card-footer warning">
+                              <span>⚠️ Erreur Gemini: vérifiez votre clé API</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="response-meta">
+                        {result.responseTime && (
+                          <span className="response-time">
+                            ⏱️ {result.responseTime}ms
+                          </span>
                         )}
+                        <span className="response-id">
+                          🆔 {Math.random().toString(36).substring(2, 8).toUpperCase()}
+                        </span>
                       </div>
-                      <div className="ia-card-body">
-                        <p className="ia-response">
-                          {result.gemini?.answer
-                            ? truncate(clean(result.gemini.answer), 400)
-                            : "Gemini non disponible (clé API manquante ou quota dépassé)"}
-                        </p>
-                      </div>
-                      {result.gemini?.answer?.startsWith("[Erreur") && (
-                        <div className="ia-card-footer warning">
-                          <span>⚠️ Erreur Gemini: vérifiez votre clé API</span>
-                        </div>
-                      )}
                     </div>
-                  </div>
-
-                  {/* === TEMPS DE RÉPONSE ET MÉTADONNÉES === */}
-                  <div className="response-meta">
-                    {result.responseTime && (
-                      <span className="response-time">
-                        ⏱️ {result.responseTime}ms
-                      </span>
-                    )}
-                    <span className="response-id">
-                      🆔 {Math.random().toString(36).substring(2, 8).toUpperCase()}
-                    </span>
-                  </div>
+                  )}
                 </div>
               )}
             </div>
