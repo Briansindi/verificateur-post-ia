@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext';
 
 export default function LoginModal({ onClose }) {
   const [isLogin, setIsLogin] = useState(true);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -15,9 +17,12 @@ export default function LoginModal({ onClose }) {
     setError('');
     setLoading(true);
 
-    const result = isLogin 
-      ? await login(email, password)
-      : await register(email, password);
+    let result;
+    if (isLogin) {
+      result = await login(email, password);
+    } else {
+      result = await register(firstName, lastName, email, password);
+    }
 
     if (result.success) {
       onClose();
@@ -36,6 +41,32 @@ export default function LoginModal({ onClose }) {
         <h2>{isLogin ? 'Connexion' : 'Inscription'}</h2>
         
         <form onSubmit={handleSubmit}>
+          {!isLogin && (
+            <>
+              <div className="form-group">
+                <label>Prénom</label>
+                <input
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  required
+                  placeholder="Jean"
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>Nom</label>
+                <input
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  required
+                  placeholder="Dupont"
+                />
+              </div>
+            </>
+          )}
+          
           <div className="form-group">
             <label>Email</label>
             <input

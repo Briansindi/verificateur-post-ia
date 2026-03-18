@@ -22,7 +22,7 @@ export const AuthProvider = ({ children }) => {
 
   const fetchUser = async () => {
     try {
-      const response = await api.get('/auth/me', {
+      const response = await api.get('/api/auth/me', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setUser(response.data.user);
@@ -36,7 +36,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await api.post('/auth/login', { email, password });
+      const response = await api.post('/api/auth/login', { email, password });
       const { token, user } = response.data;
       
       localStorage.setItem('token', token);
@@ -52,13 +52,18 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (email, password) => {
+  // ✅ VERSION CORRIGÉE AVEC firstName ET lastName
+  const register = async (firstName, lastName, email, password) => {
     try {
-      console.log("📤 Tentative inscription:", { email, password });
-      console.log("🔗 URL appelée:", api.defaults.baseURL + '/auth/register');
+      console.log("📤 Tentative inscription:", { firstName, lastName, email, password });
       
-      const response = await api.post('/auth/register', { email, password });
-      console.log("📥 Statut réponse:", response.status);
+      const response = await api.post('/api/auth/register', { 
+        firstName, 
+        lastName, 
+        email, 
+        password 
+      });
+      
       console.log("📥 Réponse succès:", response.data);
       
       const { token, user } = response.data;
@@ -69,18 +74,14 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true };
     } catch (error) {
-      console.log("❌ Erreur complète:", error);
-      console.log("❌ Message erreur:", error.message);
-      console.log("❌ Statut erreur:", error.response?.status);
-      console.log("❌ Données erreur:", error.response?.data);
-      console.log("❌ Headers réponse:", error.response?.headers);
+      console.log("❌ Erreur:", error.response?.data);
       
       let errorMessage = "Erreur d'inscription";
       
       if (error.response?.data?.error) {
         errorMessage = error.response.data.error;
       } else if (error.message === "Network Error") {
-        errorMessage = "Impossible de joindre le serveur. Vérifie que le backend tourne sur http://localhost:5050";
+        errorMessage = "Impossible de joindre le serveur";
       }
       
       return { 
@@ -89,6 +90,7 @@ export const AuthProvider = ({ children }) => {
       };
     }
   };
+
   const logout = () => {
     localStorage.removeItem('token');
     setToken(null);

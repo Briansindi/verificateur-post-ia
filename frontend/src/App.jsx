@@ -57,11 +57,69 @@ function StatsCard({ icon, label, value, color }) {
 function UserButton({ onClick }) {
   const { user, logout } = useAuth();
   
+  // Fonction pour obtenir les initiales
+  const getInitials = () => {
+    if (!user) return '';
+    const first = user.firstName?.charAt(0).toUpperCase() || '';
+    const last = user.lastName?.charAt(0).toUpperCase() || '';
+    return `${first}${last}`;
+  };
+
+  // Fonction pour obtenir une couleur cohérente basée sur l'email
+  const getAvatarColor = () => {
+    if (!user?.email) return '#3b82f6';
+    
+    // Génère un hash simple à partir de l'email
+    const hash = user.email.split('').reduce((acc, char) => {
+      return acc + char.charCodeAt(0);
+    }, 0);
+    
+    const colors = [
+      '#3b82f6', // bleu
+      '#8b5cf6', // violet
+      '#22c55e', // vert
+      '#f59e0b', // orange
+      '#ef4444', // rouge
+      '#ec4899', // rose
+    ];
+    
+    return colors[hash % colors.length];
+  };
+  
   if (user) {
     return (
       <div className="user-menu">
-        <span className="user-email">{user.email}</span>
+        <div className="user-info">
+          <div 
+            className="user-avatar" 
+            style={{ backgroundColor: getAvatarColor() }}
+          >
+            {getInitials()}
+          </div>
+          <div className="user-details">
+            <div className="user-name">
+              {user.firstName} {user.lastName}
+            </div>
+            <div className="user-email">{user.email}</div>
+          </div>
+        </div>
+        
+        {/* Stats rapides (optionnel) */}
+        <div className="user-stats">
+          <div className="stat-item">
+            <span className="stat-value">{user.totalQueries || 0}</span>
+            <span className="stat-label">Requêtes</span>
+          </div>
+          <div className="stat-item">
+            <span className="stat-value">
+              {user.totalQueries ? Math.min(100, Math.round(user.totalQueries * 10)) : 0}%
+            </span>
+            <span className="stat-label">Activité</span>
+          </div>
+        </div>
+        
         <button onClick={logout} className="logout-btn">
+          <span>🚪</span>
           Déconnexion
         </button>
       </div>
@@ -70,7 +128,8 @@ function UserButton({ onClick }) {
   
   return (
     <button onClick={onClick} className="login-btn">
-      🔑 Connexion
+      <span>🔑</span>
+      Connexion
     </button>
   );
 }
@@ -158,8 +217,50 @@ export default function App() {
         ? { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }}
         : {};
       
+      // 1. Obtenir les réponses OpenAI et Gemini
       const { data } = await api.post("/api/verify", { question }, config);
       console.log("Réponse API:", data);
+      
+      // 2. Si les deux IA ont répondu, demande une évaluation GPT
+    // 2. Si les deux IA ont répondu, demande une évaluation GPT
+if (data.openai?.answer && data.gemini?.answer && !data.gemini.answer?.startsWith("[Erreur")) {
+  try {
+    console.log("🔍 Appel au juge GPT...");
+    const judgeResponse = await api.post('/api/judge/evaluate', {
+      question,
+      answerA: data.openai.answer,
+      answerB: data.gemini.answer
+    }, config);
+    
+    console.log("✅ Évaluation GPT reçue:", judgeResponse.data);
+    
+    // 3. Enrichir les résultats avec l'évaluation GPT
+    if (judgeResponse.data) {
+      data.gptEvaluation = judgeResponse.data;
+      
+      // ✅ MOYENNE entre l'algorithme et GPT
+      const algoFinalScore = data.finalScore;
+      const algoAgreement = data.agreementScore;
+      
+      data.finalScore = Math.round((algoFinalScore + judgeResponse.data.fiabilite) / 2);
+      data.agreementScore = Math.round((algoAgreement + judgeResponse.data.accord) / 2);
+      data.verdict = judgeResponse.data.verdict; // On garde le verdict GPT
+      
+      console.log("✅ Scores moyennés:", {
+        algo: algoFinalScore,
+        gpt: judgeResponse.data.fiabilite,
+        final: data.finalScore,
+        agreement: data.agreementScore,
+        verdict: data.verdict
+      });
+    }
+    
+  } catch (judgeError) {
+    console.error("❌ Erreur juge GPT:", judgeError);
+    // On continue sans l'évaluation GPT
+  }
+}
+      
       setResult(data);
       
       // Sauvegarder dans l'historique backend si connecté
@@ -446,7 +547,38 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* === ALERTES CONTEXTUELLES AVEC EFFET DE GLOW === */}
+                  {/* === ÉVALUATION GPT === */}
+                  {result.gptEvaluation && (
+                    <div className="gpt-evaluation-card">
+                      <div className="gpt-header">
+                        <span className="gpt-icon">🤖</span>
+                        <h3>Analyse approfondie</h3>
+                      </div>
+                      <p className="gpt-explanation">{result.gptEvaluation.explication}</p>
+                      {result.gptEvaluation.points_communs && result.gptEvaluation.points_communs.length > 0 && (
+                        <div className="gpt-points">
+                          <strong>Points communs :</strong>
+                          <ul>
+                            {result.gptEvaluation.points_communs.map((point, i) => (
+                              <li key={i}>{point}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {result.gptEvaluation.divergences && result.gptEvaluation.divergences.length > 0 && (
+                        <div className="gpt-divergences">
+                          <strong>Divergences :</strong>
+                          <ul>
+                            {result.gptEvaluation.divergences.map((div, i) => (
+                              <li key={i}>{div}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* === ALERTES CONTEXTUELLES === */}
                   {result.finalScore < 40 && (
                     <div className="alert-card alert-red animate-slideIn">
                       <span className="alert-icon-large">🚨</span>
@@ -495,7 +627,7 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* === CARTES DES IA AMÉLIORÉES === */}
+                  {/* === CARTES DES IA === */}
                   <div className="ia-grid">
                     {/* OpenAI */}
                     <div className="ia-card openai animate-scaleIn">
@@ -504,9 +636,9 @@ export default function App() {
                           <span className="ia-icon">🧠</span>
                           <h3>OpenAI</h3>
                         </div>
-                        <div className="ia-score-badge">
-                          Score: {result.openai?.analysis?.score ?? "—"}%
-                        </div>
+                        <div className="ia-badge success">
+                            <span className="badge-dot" /> Réponse reçue
+                          </div>
                       </div>
                       <div className="ia-card-body">
                         <p className="ia-response">
@@ -680,8 +812,8 @@ export default function App() {
                 </div>
                 <div className="setting-item">
                   <span className="setting-label">Gemini</span>
-                  <span className="setting-value warning">
-                    <span className="status-badge warning" /> Clé manquante
+                  <span className="setting-value success">
+                  <span className="status-badge success" /> Configuré
                   </span>
                 </div>
               </div>

@@ -3,16 +3,17 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import User from '../models/User.js';
 import { authenticate } from '../middleware/auth.js';
+
 const router = express.Router();
 
 // Inscription
 router.post('/register', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { firstName, lastName, email, password } = req.body;
     
     // Vérifications basiques
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email et mot de passe requis" });
+    if (!firstName || !lastName || !email || !password) {
+      return res.status(400).json({ error: "Tous les champs sont requis" });
     }
     
     if (password.length < 6) {
@@ -31,6 +32,8 @@ router.post('/register', async (req, res) => {
     
     // Créer l'utilisateur
     const user = new User({
+      firstName,
+      lastName,
       email,
       password: hashedPassword
     });
@@ -49,6 +52,8 @@ router.post('/register', async (req, res) => {
       token,
       user: {
         id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
         email: user.email,
         createdAt: user.createdAt
       }
@@ -98,6 +103,8 @@ router.post('/login', async (req, res) => {
       token,
       user: {
         id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
         email: user.email,
         createdAt: user.createdAt,
         totalQueries: user.totalQueries || 0
@@ -110,28 +117,32 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Route protégée pour tester
+// Route protégée pour récupérer les infos utilisateur
 router.get('/me', authenticate, async (req, res) => {
   res.json({
     user: {
       id: req.user._id,
+      firstName: req.user.firstName,
+      lastName: req.user.lastName,
       email: req.user.email,
       createdAt: req.user.createdAt,
       totalQueries: req.user.totalQueries || 0
     }
   });
 });
-// Route de test pour vérifier que auth fonctionne
+
+// Route de test
 router.get('/test', (req, res) => {
-    res.json({ 
-      message: "✅ Route auth fonctionne",
-      timestamp: new Date().toISOString(),
-      routes: [
-        "POST /register",
-        "POST /login",
-        "GET /me (protégée)",
-        "GET /test"
-      ]
-    });
+  res.json({ 
+    message: "✅ Route auth fonctionne",
+    timestamp: new Date().toISOString(),
+    routes: [
+      "POST /register",
+      "POST /login",
+      "GET /me (protégée)",
+      "GET /test"
+    ]
   });
+});
+
 export default router;

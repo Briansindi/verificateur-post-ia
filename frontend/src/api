@@ -1,9 +1,26 @@
-
 import axios from "axios";
 
 const api = axios.create({
   baseURL: "http://localhost:5050",
-  timeout: 10000,
+  timeout: 60000,
 });
+
+// 🔍 INTERCEPTEUR POUR VOIR LES REQUÊTES
+api.interceptors.request.use(request => {
+  console.log('🚀 Requête:', request.method.toUpperCase(), request.url);
+  console.log('📦 Données:', request.data);
+  return request;
+});
+
+api.interceptors.response.use(
+  response => {
+    console.log('✅ Réponse:', response.status, response.data);
+    return response;
+  },
+  error => {
+    console.log('❌ Erreur:', error.response?.status, error.response?.data);
+    return Promise.reject(error);
+  }
+);
 
 export { api };

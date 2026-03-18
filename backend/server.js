@@ -6,7 +6,7 @@ import authRoutes from './routes/auth.js';
 import historyRoutes from './routes/history.js';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import connectDB from './config/database.js';  // ← IMPORT DE LA CONNEXION MONGODB
-
+import judgeRoutes from './routes/judge.js';
 dotenv.config();
 
 // Connexion à MongoDB
@@ -234,59 +234,49 @@ const stopwords = [
 function calculateAgreement(text1, text2) {
   if (!text1 || !text2) return 0;
 
-  // Nettoyer et tokenizer
-  const tokens1 = tokenize(text1);
-  const tokens2 = tokenize(text2);
+  // 1. Extraire les chiffres (les faits)
+  const numbers1 = text1.match(/\b\d+\b/g) || [];
+  const numbers2 = text2.match(/\b\d+\b/g) || [];
+  
+  // 2. Extraire les mots-clés principaux
+  const keywords1 = extractKeywords(text1);
+  const keywords2 = extractKeywords(text2);
+  
+  // 3. Comparer les chiffres (poids fort)
+  let numberScore = 0;
+  if (numbers1.length > 0 && numbers2.length > 0) {
+    const commonNumbers = numbers1.filter(n => numbers2.includes(n));
+    numberScore = (commonNumbers.length / Math.max(numbers1.length, numbers2.length)) * 100;
+  } else {
+    numberScore = 100; // Pas de chiffres = pas de désaccord
+  }
+  
+  // 4. Comparer les mots-clés (poids moyen)
+  const commonKeywords = keywords1.filter(k => keywords2.includes(k));
+  const keywordScore = (commonKeywords.length / Math.max(keywords1.length, keywords2.length)) * 100;
+  
+  // 5. Détecter si les réponses sont longues (bonus)
+  const lengthBonus = (text1.length > 100 && text2.length > 100) ? 15 : 0;
+  
+  // 6. Score final pondéré
+  const finalScore = (numberScore * 0.6) + (keywordScore * 0.4) + lengthBonus;
+  
+  return Math.min(100, Math.round(finalScore));
+}
 
-  if (tokens1.length === 0 || tokens2.length === 0) return 0;
-
-  // 1. SIMILARITÉ DE JACCARD (mots en commun)
-  const set1 = new Set(tokens1);
-  const set2 = new Set(tokens2);
+function extractKeywords(text) {
+  // Mots importants (noms, concepts)
+  const importantWords = [
+    'pays', 'états', 'monde', 'officiellement', 'reconnus',
+    'membres', 'nations', 'unies', 'observateurs', 'vatican',
+    'palestine', 'saint-siège', 'internationale'
+  ];
   
-  const intersection = new Set([...set1].filter(x => set2.has(x)));
-  const union = new Set([...set1, ...set2]);
+  const words = text.toLowerCase()
+    .split(/\s+/)
+    .filter(w => w.length > 3);
   
-  const jaccard = intersection.size / union.size;
-
-  // 2. SIMILARITÉ DE CONTENU (fréquence des mots)
-  const freq1 = {};
-  const freq2 = {};
-  
-  tokens1.forEach(w => freq1[w] = (freq1[w] || 0) + 1);
-  tokens2.forEach(w => freq2[w] = (freq2[w] || 0) + 1);
-  
-  let dotProduct = 0;
-  let norm1 = 0;
-  let norm2 = 0;
-  
-  const allWords = new Set([...Object.keys(freq1), ...Object.keys(freq2)]);
-  
-  allWords.forEach(word => {
-    const f1 = freq1[word] || 0;
-    const f2 = freq2[word] || 0;
-    dotProduct += f1 * f2;
-    norm1 += f1 * f1;
-    norm2 += f2 * f2;
-  });
-  
-  const cosine = norm1 && norm2 ? dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2)) : 0;
-
-  // 3. BONUS POUR LES RÉPONSES FACTUELLES (présence de dates, nombres, etc.)
-  const aDesChiffres1 = /\d+/.test(text1);
-  const aDesChiffres2 = /\d+/.test(text2);
-  const factuelBonus = (aDesChiffres1 && aDesChiffres2) ? 0.2 : 0;
-
-  // Score combiné (jaccard pour les mots exacts, cosine pour la similarité sémantique)
-  const rawScore = (jaccard * 0.6 + cosine * 0.4) * 100;
-  
-  // Ajouter le bonus factuel
-  let finalScore = rawScore * (1 + factuelBonus);
-  
-  // Plafonner à 100
-  finalScore = Math.min(100, finalScore);
-
-  return Math.round(finalScore);
+  return words.filter(w => importantWords.includes(w));
 }
 
 function tokenize(text) {
@@ -300,7 +290,7 @@ function tokenize(text) {
 // Routes d'authentification et historique (à ajouter avant app.listen)
 app.use('/api/auth', authRoutes);
 app.use('/api/history', historyRoutes);
-
+app.use('/api/judge', judgeRoutes);
 /* ===================================================== */
 
 app.listen(PORT, () =>
