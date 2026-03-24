@@ -39,7 +39,7 @@ if (!OPENAI_KEY) {
 }
 
 app.post("/api/verify", async (req, res) => {
-  const { question, model } = req.body;
+  const { question } = req.body;  // ← PLUS DE model ici !
 
   if (!question || question.trim().length < 5) {
     return res.status(400).json({
@@ -47,56 +47,48 @@ app.post("/api/verify", async (req, res) => {
     });
   }
 
-  // Déterminer le mode (comparaison par défaut)
-  const useBoth = !model || model === 'both';
-  const useChatGPT = useBoth || model === 'chatgpt';
-  const useGemini = (useBoth || model === 'gemini') && GEMINI_KEY;
-
   try {
     console.log(`📝 Question reçue: "${question.substring(0, 50)}..."`);
-    console.log(`🤖 Mode: ${useBoth ? 'comparaison' : model}`);
+    console.log(`🤖 Mode: comparaison des deux IA`);
 
     let openaiAnswer = "";
     let geminiAnswer = null;
     let openaiAnalysis = null;
     let geminiAnalysis = null;
 
-    // ---------- OPENAI ----------
-    if (useChatGPT) {
-      try {
-        const openaiResponse = await axios.post(
-          "https://api.openai.com/v1/chat/completions",
-          {
-            model: "gpt-4o-mini",
-            messages: [{ role: "user", content: question }],
-            temperature: 0.0,
+    // ---------- OPENAI (TOUJOURS appelé) ----------
+    try {
+      const openaiResponse = await axios.post(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: question }],
+          temperature: 0.0,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${OPENAI_KEY}`,
           },
-          {
-            headers: {
-              Authorization: `Bearer ${OPENAI_KEY}`,
-            },
-          }
-        );
-        openaiAnswer = openaiResponse.data?.choices?.[0]?.message?.content ?? "";
-        openaiAnalysis = analyzeResponse(question, openaiAnswer);
-        console.log("✅ OpenAI: réponse reçue");
-      } catch (openaiError) {
-        console.error("❌ OpenAI error:", openaiError.message);
-        openaiAnswer = `[Erreur OpenAI: ${openaiError.response?.data?.error?.message || openaiError.message}]`;
-        openaiAnalysis = { score: 0, details: { pertinence: 0, longueur: 0, coherence: 0 }, wordCount: 0 };
-      }
+        }
+      );
+      openaiAnswer = openaiResponse.data?.choices?.[0]?.message?.content ?? "";
+      openaiAnalysis = analyzeResponse(question, openaiAnswer);
+      console.log("✅ OpenAI: réponse reçue");
+    } catch (openaiError) {
+      console.error("❌ OpenAI error:", openaiError.message);
+      openaiAnswer = `[Erreur OpenAI: ${openaiError.response?.data?.error?.message || openaiError.message}]`;
+      openaiAnalysis = { score: 0, details: { pertinence: 0, longueur: 0, coherence: 0 }, wordCount: 0 };
     }
 
-    // ---------- GEMINI ----------
-    if (useGemini) {
+    // ---------- GEMINI (TOUJOURS appelé si clé dispo) ----------
+    if (GEMINI_KEY) {
       try {
         const genAI = new GoogleGenerativeAI(GEMINI_KEY);
-        const model = genAI.getGenerativeModel({
+        const modelGemini = genAI.getGenerativeModel({
           model: "gemini-2.5-pro",
         });
-        const result = await model.generateContent(question);
+        const result = await modelGemini.generateContent(question);
         geminiAnswer = result?.response?.text() ?? null;
-        // Analyser Gemini avec la même fonction
         geminiAnalysis = analyzeResponse(question, geminiAnswer);
         console.log("✅ Gemini: réponse reçue");
       } catch (geminiError) {
@@ -106,39 +98,30 @@ app.post("/api/verify", async (req, res) => {
       }
     }
 
+    // ---------- CALCUL TOUJOURS AVEC LES 2 IA ----------
     let finalScore, verdict, agreementScore;
 
-    // ---------- CALCUL SELON LE MODE ----------
-    if (useBoth) {
-      // Mode comparaison (comportement original)
-      if (geminiAnswer && !geminiAnswer.startsWith("[Erreur") && openaiAnswer && !openaiAnswer.startsWith("[Erreur")) {
-        agreementScore = calculateAgreement(openaiAnswer, geminiAnswer);
-        finalScore = Math.round((openaiAnalysis.score + agreementScore) / 2);
-        
-        if (finalScore >= 70) verdict = "fiable";
-        else if (finalScore >= 45) verdict = "à vérifier";
-        else if (finalScore >= 30) verdict = "douteux";
-        else verdict = "contradictoire";
-      } else {
-        // Mode mono-IA si une seule réponse
-        finalScore = openaiAnalysis?.score || geminiAnalysis?.score || 0;
-        verdict = "single-model";
-      }
-    } else if (model === 'chatgpt') {
-      // Mode ChatGPT seul
-      finalScore = openaiAnalysis?.score || 0;
+    // Si les deux IA ont répondu correctement
+    if (openaiAnswer && !openaiAnswer.startsWith("[Erreur") && 
+        geminiAnswer && !geminiAnswer.startsWith("[Erreur")) {
+      
+      agreementScore = calculateAgreement(openaiAnswer, geminiAnswer);
+      finalScore = Math.round((openaiAnalysis.score + agreementScore) / 2);
+      
       if (finalScore >= 70) verdict = "fiable";
       else if (finalScore >= 45) verdict = "à vérifier";
-      else verdict = "douteux";
-    } else if (model === 'gemini') {
-      // Mode Gemini seul
-      finalScore = geminiAnalysis?.score || 0;
+      else if (finalScore >= 30) verdict = "douteux";
+      else verdict = "contradictoire";
+    } 
+    // Fallback : une seule IA disponible
+    else {
+      finalScore = openaiAnalysis?.score || geminiAnalysis?.score || 0;
       if (finalScore >= 70) verdict = "fiable";
       else if (finalScore >= 45) verdict = "à vérifier";
       else verdict = "douteux";
     }
 
-    // Structure de réponse
+    // Structure de réponse (toujours les deux réponses)
     const response = {
       question,
       finalScore,
@@ -153,8 +136,8 @@ app.post("/api/verify", async (req, res) => {
       } : null,
     };
 
-    // Ajouter agreementScore seulement en mode comparaison
-    if (useBoth && agreementScore) {
+    // Ajouter agreementScore s'il a été calculé
+    if (agreementScore) {
       response.agreementScore = agreementScore;
     }
 

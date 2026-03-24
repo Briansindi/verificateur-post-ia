@@ -486,7 +486,7 @@ export default function App() {
 
               {result && (
                 <div className="results-panel" ref={resultsRef}>
-                  {/* RÉSULTAT SIMPLIFIÉ */}
+                  {/* RÉSULTAT SIMPLIFIÉ - Affiche UNIQUEMENT la réponse du modèle choisi */}
                   <div className="result-simple">
                     <div className="result-verdict">
                       <span className={`verdict-badge-large ${badgeClass(result.verdict)}`}>
@@ -512,7 +512,7 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* DÉTAILS (affichés conditionnellement) */}
+                  {/* DÉTAILS - Affiche les DEUX réponses + accord + évaluation GPT */}
                   {showDetails && (
                     <div className="details-panel">
                       <h3>📊 Analyse détaillée</h3>
@@ -565,7 +565,7 @@ export default function App() {
                               </>
                             ) : (
                               <div className="single-model-note">
-                                Mode mono-IA (Gemini non disponible)
+                                Mode mono-IA (impossible de calculer l'accord)
                               </div>
                             )}
                           </div>
@@ -652,7 +652,7 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* Cartes IA */}
+                      {/* Cartes IA - Les DEUX réponses */}
                       <div className="ia-grid">
                         <div className="ia-card openai animate-scaleIn">
                           <div className="ia-card-header">
