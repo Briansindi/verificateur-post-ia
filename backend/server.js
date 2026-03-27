@@ -108,16 +108,20 @@ app.post("/api/verify", async (req, res) => {
 
       // 2. Gemini (avec timeout)
       (async () => {
-        if (!GEMINI_KEY) return { answer: null, analysis: null, success: false, error: "Clé manquante" };
+        if (!GEMINI_KEY) return { answer: null, analysis: null, success: false };
         try {
           const genAI = new GoogleGenerativeAI(GEMINI_KEY);
-          const modelGemini = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
-          const prompt = `Nous sommes en ${CURRENT_YEAR}. ${question}`;
+          const modelGemini = genAI.getGenerativeModel({ 
+            model: "gemini-2.5-pro",
+            generationConfig: {
+              temperature: 0.0,
+              maxOutputTokens: 300
+            }
+          });
           
-          // ⚡ Timeout de 12s pour Gemini
           const result = await withTimeout(
-            modelGemini.generateContent(prompt),
-            12000,
+            modelGemini.generateContent(question),  // ⚡ Prompt simplifié
+            20000,  // ⚡ 20 secondes au lieu de 15
             "Gemini"
           );
           
@@ -127,7 +131,7 @@ app.post("/api/verify", async (req, res) => {
         } catch (error) {
           console.error("❌ Gemini error:", error.message);
           return { 
-            answer: `[Erreur Gemini: ${error.message}]`,
+            answer: `[Erreur Gemini]`,
             analysis: { score: 0, details: { pertinence: 0, longueur: 0, coherence: 0 }, wordCount: 0 },
             success: false 
           };
@@ -156,7 +160,7 @@ app.post("/api/verify", async (req, res) => {
             },
             {
               headers: { Authorization: `Bearer ${MISTRAL_KEY}` },
-              timeout: 10000
+              timeout: 15000
             }
           );
           const answer = response.data?.choices?.[0]?.message?.content ?? "";
@@ -193,7 +197,7 @@ app.post("/api/verify", async (req, res) => {
             },
             {
               headers: { Authorization: `Bearer ${GROQ_KEY}` },
-              timeout: 10000
+              timeout: 15000
             }
           );
           const answer = response.data?.choices?.[0]?.message?.content ?? "";
