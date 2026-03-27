@@ -7,7 +7,7 @@ import historyRoutes from './routes/history.js';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import connectDB from './config/database.js';
 import judgeRoutes from './routes/judge.js';
-
+import conversationRoutes from './routes/conversations.js';
 dotenv.config();
 
 // Connexion à MongoDB
@@ -18,6 +18,11 @@ const PORT = process.env.PORT || 5050;
 
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
+const MISTRAL_KEY = process.env.MISTRAL_API_KEY; // ← DeepSeek remplacé par Mistral
+const GROQ_KEY = process.env.GROQ_API_KEY;
+
+// Année actuelle pour les prompts
+const CURRENT_YEAR = new Date().getFullYear();
 
 // Middleware
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "http://localhost:5173" }));
@@ -39,7 +44,7 @@ if (!OPENAI_KEY) {
 }
 
 app.post("/api/verify", async (req, res) => {
-  const { question } = req.body;  // ← PLUS DE model ici !
+  const { question } = req.body;
 
   if (!question || question.trim().length < 5) {
     return res.status(400).json({
@@ -49,111 +54,211 @@ app.post("/api/verify", async (req, res) => {
 
   try {
     console.log(`📝 Question reçue: "${question.substring(0, 50)}..."`);
-    console.log(`🤖 Mode: comparaison des deux IA`);
+    console.log(`🤖 Appel parallèle aux 4 IA (année: ${CURRENT_YEAR})`);
 
-    let openaiAnswer = "";
-    let geminiAnswer = null;
-    let openaiAnalysis = null;
-    let geminiAnalysis = null;
-
-    // ---------- OPENAI (TOUJOURS appelé) ----------
-    try {
-      const openaiResponse = await axios.post(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          model: "gpt-4o-mini",
-          messages: [{ role: "user", content: question }],
-          temperature: 0.0,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${OPENAI_KEY}`,
-          },
+    // ---------- APPELS PARALLÈLES AUX 4 IA ----------
+    const [openaiResult, geminiResult, mistralResult, groqResult] = await Promise.allSettled([
+      // 1. OpenAI
+      (async () => {
+        try {
+          const response = await axios.post(
+            "https://api.openai.com/v1/chat/completions",
+            {
+              model: "gpt-4o-mini",
+              messages: [
+                {
+                  role: "system",
+                  content: `Nous sommes en ${CURRENT_YEAR}. Réponds avec des informations à jour et raisonne avec cette date.`
+                },
+                {
+                  role: "user",
+                  content: question
+                }
+              ],
+              temperature: 0.0,
+            },
+            {
+              headers: { Authorization: `Bearer ${OPENAI_KEY}` },
+              timeout: 15000
+            }
+          );
+          const answer = response.data?.choices?.[0]?.message?.content ?? "";
+          const analysis = analyzeResponse(question, answer);
+          return { answer, analysis, success: true };
+        } catch (error) {
+          console.error("❌ OpenAI error:", error.message);
+          return { 
+            answer: `[Erreur OpenAI: ${error.response?.data?.error?.message || error.message}]`,
+            analysis: { score: 0, details: { pertinence: 0, longueur: 0, coherence: 0 }, wordCount: 0 },
+            success: false 
+          };
         }
-      );
-      openaiAnswer = openaiResponse.data?.choices?.[0]?.message?.content ?? "";
-      openaiAnalysis = analyzeResponse(question, openaiAnswer);
-      console.log("✅ OpenAI: réponse reçue");
-    } catch (openaiError) {
-      console.error("❌ OpenAI error:", openaiError.message);
-      openaiAnswer = `[Erreur OpenAI: ${openaiError.response?.data?.error?.message || openaiError.message}]`;
-      openaiAnalysis = { score: 0, details: { pertinence: 0, longueur: 0, coherence: 0 }, wordCount: 0 };
-    }
+      })(),
 
-    // ---------- GEMINI (TOUJOURS appelé si clé dispo) ----------
-    if (GEMINI_KEY) {
-      try {
-        const genAI = new GoogleGenerativeAI(GEMINI_KEY);
-        const modelGemini = genAI.getGenerativeModel({
-          model: "gemini-2.5-pro",
-        });
-        const result = await modelGemini.generateContent(question);
-        geminiAnswer = result?.response?.text() ?? null;
-        geminiAnalysis = analyzeResponse(question, geminiAnswer);
-        console.log("✅ Gemini: réponse reçue");
-      } catch (geminiError) {
-        console.error("❌ Gemini error:", geminiError.message);
-        geminiAnswer = `[Erreur Gemini: ${geminiError.message}]`;
-        geminiAnalysis = { score: 0, details: { pertinence: 0, longueur: 0, coherence: 0 }, wordCount: 0 };
-      }
-    }
+      // 2. Gemini
+      (async () => {
+        if (!GEMINI_KEY) return { answer: null, analysis: null, success: false, error: "Clé manquante" };
+        try {
+          const genAI = new GoogleGenerativeAI(GEMINI_KEY);
+          const modelGemini = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+          const prompt = `Nous sommes en ${CURRENT_YEAR}. ${question}`;
+          const result = await modelGemini.generateContent(prompt);
+          const answer = result?.response?.text() ?? null;
+          const analysis = analyzeResponse(question, answer);
+          return { answer, analysis, success: true };
+        } catch (error) {
+          console.error("❌ Gemini error:", error.message);
+          return { 
+            answer: `[Erreur Gemini: ${error.message}]`,
+            analysis: { score: 0, details: { pertinence: 0, longueur: 0, coherence: 0 }, wordCount: 0 },
+            success: false 
+          };
+        }
+      })(),
 
-    // ---------- CALCUL TOUJOURS AVEC LES 2 IA ----------
+      // 3. Mistral (remplace DeepSeek) - API gratuite
+      (async () => {
+        if (!MISTRAL_KEY) return { answer: null, analysis: null, success: false, error: "Clé manquante" };
+        try {
+          const response = await axios.post(
+            "https://api.mistral.ai/v1/chat/completions",
+            {
+              model: "mistral-tiny",
+              messages: [
+                {
+                  role: "system",
+                  content: `Nous sommes en ${CURRENT_YEAR}. Réponds avec des informations à jour.`
+                },
+                {
+                  role: "user",
+                  content: question
+                }
+              ],
+              temperature: 0.0,
+            },
+            {
+              headers: { Authorization: `Bearer ${MISTRAL_KEY}` },
+              timeout: 15000
+            }
+          );
+          const answer = response.data?.choices?.[0]?.message?.content ?? "";
+          return { answer, analysis: null, success: true };
+        } catch (error) {
+          console.error("❌ Mistral error:", error.message);
+          return { 
+            answer: `[Erreur Mistral: ${error.message}]`,
+            analysis: null,
+            success: false 
+          };
+        }
+      })(),
+
+      // 4. Groq (Llama 3)
+      (async () => {
+        if (!GROQ_KEY) return { answer: null, analysis: null, success: false, error: "Clé manquante" };
+        try {
+          const response = await axios.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            {
+              model: "llama-3.3-70b-versatile",
+              messages: [
+                {
+                  role: "system",
+                  content: `Nous sommes en ${CURRENT_YEAR}. Réponds avec des informations à jour.`
+                },
+                {
+                  role: "user",
+                  content: question
+                }
+              ],
+              temperature: 0.0,
+            },
+            {
+              headers: { Authorization: `Bearer ${GROQ_KEY}` },
+              timeout: 15000
+            }
+          );
+          const answer = response.data?.choices?.[0]?.message?.content ?? "";
+          return { answer, analysis: null, success: true };
+        } catch (error) {
+          console.error("❌ Groq error:", error.message);
+          return { 
+            answer: `[Erreur Llama: ${error.message}]`,
+            analysis: null,
+            success: false 
+          };
+        }
+      })()
+    ]);
+
+    // Récupération des résultats
+    const openaiData = openaiResult.status === 'fulfilled' ? openaiResult.value : { answer: null, analysis: null };
+    const geminiData = geminiResult.status === 'fulfilled' ? geminiResult.value : { answer: null, analysis: null };
+    const mistralData = mistralResult.status === 'fulfilled' ? mistralResult.value : { answer: null };
+    const groqData = groqResult.status === 'fulfilled' ? groqResult.value : { answer: null };
+
+    // ---------- CALCUL DU SCORE (toujours basé sur ChatGPT + Gemini) ----------
     let finalScore, verdict, agreementScore;
 
-    // Si les deux IA ont répondu correctement
-    if (openaiAnswer && !openaiAnswer.startsWith("[Erreur") && 
-        geminiAnswer && !geminiAnswer.startsWith("[Erreur")) {
-      
-      agreementScore = calculateAgreement(openaiAnswer, geminiAnswer);
-      finalScore = Math.round((openaiAnalysis.score + agreementScore) / 2);
+    const hasOpenai = openaiData.answer && !openaiData.answer.startsWith("[Erreur");
+    const hasGemini = geminiData.answer && !geminiData.answer.startsWith("[Erreur");
+
+    if (hasOpenai && hasGemini) {
+      agreementScore = calculateAgreement(openaiData.answer, geminiData.answer);
+      finalScore = Math.round((openaiData.analysis.score + agreementScore) / 2);
       
       if (finalScore >= 70) verdict = "fiable";
       else if (finalScore >= 45) verdict = "à vérifier";
       else if (finalScore >= 30) verdict = "douteux";
       else verdict = "contradictoire";
-    } 
-    // Fallback : une seule IA disponible
-    else {
-      finalScore = openaiAnalysis?.score || geminiAnalysis?.score || 0;
+    } else if (hasOpenai) {
+      finalScore = openaiData.analysis.score;
       if (finalScore >= 70) verdict = "fiable";
       else if (finalScore >= 45) verdict = "à vérifier";
       else verdict = "douteux";
+    } else if (hasGemini) {
+      finalScore = geminiData.analysis.score;
+      if (finalScore >= 70) verdict = "fiable";
+      else if (finalScore >= 45) verdict = "à vérifier";
+      else verdict = "douteux";
+    } else {
+      finalScore = 0;
+      verdict = "indisponible";
     }
 
-    // Structure de réponse (toujours les deux réponses)
+    // Structure de réponse (toutes les 4 IA)
     const response = {
       question,
       finalScore,
       verdict,
-      openai: openaiAnswer ? {
-        answer: openaiAnswer,
-        analysis: openaiAnalysis
+      openai: openaiData.answer ? {
+        answer: openaiData.answer,
+        analysis: openaiData.analysis
       } : null,
-      gemini: geminiAnswer ? { 
-        answer: geminiAnswer,
-        analysis: geminiAnalysis
+      gemini: geminiData.answer ? {
+        answer: geminiData.answer,
+        analysis: geminiData.analysis
       } : null,
+      mistral: mistralData.answer ? {
+        answer: mistralData.answer
+      } : null,
+      llama: groqData.answer ? {
+        answer: groqData.answer
+      } : null
     };
 
-    // Ajouter agreementScore s'il a été calculé
     if (agreementScore) {
       response.agreementScore = agreementScore;
     }
 
+    console.log(`✅ Réponses reçues: OpenAI=${hasOpenai}, Gemini=${hasGemini}, Mistral=${!!mistralData.answer}, Llama=${!!groqData.answer}`);
     res.json(response);
 
   } catch (error) {
-    const status = error?.response?.status;
-    const data = error?.response?.data;
-    console.error("IA request error:", status, data || error.message);
-
+    console.error("💥 Erreur globale:", error);
     return res.status(500).json({
       error: "Erreur lors de la vérification.",
-      detail: {
-        status,
-        message: data?.error?.message || error.message,
-      },
+      message: error.message
     });
   }
 });
@@ -175,16 +280,13 @@ function analyzeResponse(question, answer) {
     };
   }
 
-  // 1. PERTINENCE - La réponse répond-elle à la question ?
   const questionLower = question.toLowerCase();
   const answerLower = answer.toLowerCase();
   
-  // Mots-clés importants de la question
   const questionWords = questionLower
     .split(/\s+/)
     .filter(w => w.length > 3 && !stopwords.includes(w));
   
-  // Compter les mots-clés de la question présents dans la réponse
   let motsClesTrouves = 0;
   questionWords.forEach(word => {
     if (answerLower.includes(word)) motsClesTrouves++;
@@ -194,17 +296,14 @@ function analyzeResponse(question, answer) {
     ? (motsClesTrouves / questionWords.length) * 100
     : 70;
 
-  // 2. LONGUEUR - La réponse est-elle suffisamment détaillée ?
   const wordCount = answer.split(/\s+/).length;
   const longueurIdeale = 50;
   const longueur = Math.min(100, (wordCount / longueurIdeale) * 100);
 
-  // 3. COHÉRENCE - La réponse a-t-elle une structure logique ?
   const aDesPoints = answer.includes('.') || answer.includes('!') || answer.includes('?');
   const aDesPhrases = (answer.match(/[.!?]/g) || []).length > 1;
   const coherence = aDesPhrases ? 90 : aDesPoints ? 70 : 50;
 
-  // Score pondéré
   const score = Math.round(
     pertinence * 0.5 +
     longueur * 0.25 +
@@ -235,36 +334,56 @@ const stopwords = [
 ];
 
 function calculateAgreement(text1, text2) {
+  // Vérifier que les deux textes existent
   if (!text1 || !text2) return 0;
-
-  // 1. Extraire les chiffres (les faits)
+  if (text1.startsWith("[Erreur") || text2.startsWith("[Erreur")) return 0;
+  
+  // Extraire les mots significatifs (plus de 3 lettres, sans stopwords)
+  const words1 = text1.toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !stopwords.includes(w));
+    
+  const words2 = text2.toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !stopwords.includes(w));
+  
+  // Si un des deux n'a pas de mots, retourner 100 (pas de désaccord possible)
+  if (words1.length === 0 || words2.length === 0) return 100;
+  
+  // Calculer l'intersection et l'union
+  const set1 = new Set(words1);
+  const set2 = new Set(words2);
+  
+  const intersection = new Set([...set1].filter(x => set2.has(x)));
+  const union = new Set([...set1, ...set2]);
+  
+  // Éviter la division par zéro
+  const jaccard = union.size === 0 ? 1 : intersection.size / union.size;
+  
+  // Score de base
+  let score = jaccard * 100;
+  
+  // Bonus pour les chiffres (si les deux contiennent les mêmes nombres)
   const numbers1 = text1.match(/\b\d+\b/g) || [];
   const numbers2 = text2.match(/\b\d+\b/g) || [];
   
-  // 2. Extraire les mots-clés principaux
-  const keywords1 = extractKeywords(text1);
-  const keywords2 = extractKeywords(text2);
-  
-  // 3. Comparer les chiffres (poids fort)
-  let numberScore = 0;
   if (numbers1.length > 0 && numbers2.length > 0) {
     const commonNumbers = numbers1.filter(n => numbers2.includes(n));
-    numberScore = (commonNumbers.length / Math.max(numbers1.length, numbers2.length)) * 100;
-  } else {
-    numberScore = 100;
+    const numberScore = commonNumbers.length / Math.max(numbers1.length, numbers2.length);
+    score = (score + numberScore * 100) / 2;
   }
   
-  // 4. Comparer les mots-clés (poids moyen)
-  const commonKeywords = keywords1.filter(k => keywords2.includes(k));
-  const keywordScore = commonKeywords.length / Math.max(keywords1.length, keywords2.length) * 100;
+  // Bonus pour les réponses longues et similaires
+  if (text1.length > 100 && text2.length > 100) {
+    score = Math.min(100, score + 10);
+  }
   
-  // 5. Détecter si les réponses sont longues (bonus)
-  const lengthBonus = (text1.length > 100 && text2.length > 100) ? 15 : 0;
+  // Arrondir et garantir que c'est un nombre
+  const finalScore = Math.min(100, Math.max(0, Math.round(score)));
   
-  // 6. Score final pondéré
-  const finalScore = (numberScore * 0.6) + (keywordScore * 0.4) + lengthBonus;
-  
-  return Math.min(100, Math.round(finalScore));
+  return isNaN(finalScore) ? 100 : finalScore;
 }
 
 function extractKeywords(text) {
@@ -292,10 +411,11 @@ function tokenize(text) {
     .filter(w => w.length > 2 && !stopwords.includes(w));
 }
 
-// Routes d'authentification, historique et juge
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/history', historyRoutes);
 app.use('/api/judge', judgeRoutes);
+app.use('/api/conversations', conversationRoutes);
 
 /* ===================================================== */
 
@@ -306,5 +426,8 @@ app.listen(PORT, () => {
   console.log(`📡 URL: http://localhost:${PORT}`);
   console.log(`🔑 OpenAI: ${OPENAI_KEY ? "✅" : "❌"}`);
   console.log(`🔑 Gemini: ${GEMINI_KEY ? "✅" : "❌"}`);
+  console.log(`🔑 Mistral: ${MISTRAL_KEY ? "✅" : "❌"}`);
+  console.log(`🔑 Groq (Llama): ${GROQ_KEY ? "✅" : "❌"}`);
+  console.log(`📅 Année actuelle: ${CURRENT_YEAR}`);
   console.log("=".repeat(50) + "\n");
 });
