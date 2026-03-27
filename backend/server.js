@@ -8,6 +8,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import connectDB from './config/database.js';
 import judgeRoutes from './routes/judge.js';
 import conversationRoutes from './routes/conversations.js';
+
 dotenv.config();
 
 // Connexion à MongoDB
@@ -18,7 +19,7 @@ const PORT = process.env.PORT || 5050;
 
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
-const MISTRAL_KEY = process.env.MISTRAL_API_KEY; // ← DeepSeek remplacé par Mistral
+const MISTRAL_KEY = process.env.MISTRAL_API_KEY;
 const GROQ_KEY = process.env.GROQ_API_KEY;
 
 // Année actuelle pour les prompts
@@ -42,6 +43,16 @@ if (!OPENAI_KEY) {
   console.error("Missing OPENAI_API_KEY");
   process.exit(1);
 }
+
+// ⚡ Timeout pour Gemini uniquement
+const withTimeout = (promise, ms, name) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(`${name} timeout`)), ms)
+    )
+  ]);
+};
 
 app.post("/api/verify", async (req, res) => {
   const { question } = req.body;
@@ -79,7 +90,7 @@ app.post("/api/verify", async (req, res) => {
             },
             {
               headers: { Authorization: `Bearer ${OPENAI_KEY}` },
-              timeout: 15000
+              timeout: 12000
             }
           );
           const answer = response.data?.choices?.[0]?.message?.content ?? "";
@@ -95,14 +106,21 @@ app.post("/api/verify", async (req, res) => {
         }
       })(),
 
-      // 2. Gemini
+      // 2. Gemini (avec timeout)
       (async () => {
         if (!GEMINI_KEY) return { answer: null, analysis: null, success: false, error: "Clé manquante" };
         try {
           const genAI = new GoogleGenerativeAI(GEMINI_KEY);
           const modelGemini = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
           const prompt = `Nous sommes en ${CURRENT_YEAR}. ${question}`;
-          const result = await modelGemini.generateContent(prompt);
+          
+          // ⚡ Timeout de 12s pour Gemini
+          const result = await withTimeout(
+            modelGemini.generateContent(prompt),
+            12000,
+            "Gemini"
+          );
+          
           const answer = result?.response?.text() ?? null;
           const analysis = analyzeResponse(question, answer);
           return { answer, analysis, success: true };
@@ -116,7 +134,7 @@ app.post("/api/verify", async (req, res) => {
         }
       })(),
 
-      // 3. Mistral (remplace DeepSeek) - API gratuite
+      // 3. Mistral
       (async () => {
         if (!MISTRAL_KEY) return { answer: null, analysis: null, success: false, error: "Clé manquante" };
         try {
@@ -138,7 +156,7 @@ app.post("/api/verify", async (req, res) => {
             },
             {
               headers: { Authorization: `Bearer ${MISTRAL_KEY}` },
-              timeout: 15000
+              timeout: 10000
             }
           );
           const answer = response.data?.choices?.[0]?.message?.content ?? "";
@@ -175,7 +193,7 @@ app.post("/api/verify", async (req, res) => {
             },
             {
               headers: { Authorization: `Bearer ${GROQ_KEY}` },
-              timeout: 15000
+              timeout: 10000
             }
           );
           const answer = response.data?.choices?.[0]?.message?.content ?? "";
@@ -334,11 +352,9 @@ const stopwords = [
 ];
 
 function calculateAgreement(text1, text2) {
-  // Vérifier que les deux textes existent
   if (!text1 || !text2) return 0;
   if (text1.startsWith("[Erreur") || text2.startsWith("[Erreur")) return 0;
   
-  // Extraire les mots significatifs (plus de 3 lettres, sans stopwords)
   const words1 = text1.toLowerCase()
     .replace(/[^\w\s]/g, ' ')
     .split(/\s+/)
@@ -349,23 +365,15 @@ function calculateAgreement(text1, text2) {
     .split(/\s+/)
     .filter(w => w.length > 3 && !stopwords.includes(w));
   
-  // Si un des deux n'a pas de mots, retourner 100 (pas de désaccord possible)
   if (words1.length === 0 || words2.length === 0) return 100;
   
-  // Calculer l'intersection et l'union
   const set1 = new Set(words1);
   const set2 = new Set(words2);
-  
   const intersection = new Set([...set1].filter(x => set2.has(x)));
   const union = new Set([...set1, ...set2]);
   
-  // Éviter la division par zéro
-  const jaccard = union.size === 0 ? 1 : intersection.size / union.size;
+  let score = (intersection.size / union.size) * 100;
   
-  // Score de base
-  let score = jaccard * 100;
-  
-  // Bonus pour les chiffres (si les deux contiennent les mêmes nombres)
   const numbers1 = text1.match(/\b\d+\b/g) || [];
   const numbers2 = text2.match(/\b\d+\b/g) || [];
   
@@ -375,14 +383,11 @@ function calculateAgreement(text1, text2) {
     score = (score + numberScore * 100) / 2;
   }
   
-  // Bonus pour les réponses longues et similaires
   if (text1.length > 100 && text2.length > 100) {
     score = Math.min(100, score + 10);
   }
   
-  // Arrondir et garantir que c'est un nombre
   const finalScore = Math.min(100, Math.max(0, Math.round(score)));
-  
   return isNaN(finalScore) ? 100 : finalScore;
 }
 
