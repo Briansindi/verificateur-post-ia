@@ -1885,6 +1885,7 @@ svg defs linearGradient#gradient {
     width: 140px;
   }
 }
+/* ===== GLASS EFFECT ===== */
 .sidebar,
 .toolbar,
 .chat-input-area,
@@ -1892,41 +1893,68 @@ svg defs linearGradient#gradient {
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
 }
+
+/* ===================================================== */
+/* ===================== DARK MODE ====================== */
+/* ===================================================== */
+
 body:not(.light-mode) .dashboard.model-chatgpt {
   --bg-dashboard: linear-gradient(135deg, #0b1220, #0f172a);
   --accent-blue: #3b82f6;
   --accent-purple: #6366f1;
+  --glow: rgba(59, 130, 246, 0.2);
 }
 
 body:not(.light-mode) .dashboard.model-gemini {
   --bg-dashboard: linear-gradient(135deg, #0a1a22, #0f172a);
   --accent-blue: #0ea5e9;
   --accent-purple: #22d3ee;
+  --glow: rgba(14, 165, 233, 0.2);
 }
 
 body:not(.light-mode) .dashboard.model-mistral {
   --bg-dashboard: linear-gradient(135deg, #1a0f0a, #1e293b);
   --accent-blue: #f97316;
   --accent-purple: #fb923c;
+  --glow: rgba(249, 115, 22, 0.2);
 }
 
 body:not(.light-mode) .dashboard.model-llama {
   --bg-dashboard: linear-gradient(135deg, #140f1f, #1e1b4b);
   --accent-blue: #8b5cf6;
   --accent-purple: #a78bfa;
+  --glow: rgba(139, 92, 246, 0.25);
 }
+
+/* ===================================================== */
+/* ===================== LIGHT MODE ===================== */
+/* ===================================================== */
+
 body.light-mode .dashboard.model-chatgpt {
   --bg-dashboard: linear-gradient(135deg, #eff6ff, #e0f2fe);
+  --accent-blue: #2563eb;
+  --accent-purple: #4f46e5;
+  --glow: rgba(37, 99, 235, 0.15);
 }
 
 body.light-mode .dashboard.model-gemini {
-  --bg-dashboard: linear-gradient(135deg, #ecfeff, #e0f2fe);
+  --bg-dashboard: linear-gradient(135deg, #ecfeff, #cffafe);
+  --accent-blue: #0284c7;
+  --accent-purple: #06b6d4;
+  --glow: rgba(6, 182, 212, 0.15);
 }
 
 body.light-mode .dashboard.model-mistral {
   --bg-dashboard: linear-gradient(135deg, #fff7ed, #ffedd5);
+  --accent-blue: #ea580c;
+  --accent-purple: #fb923c;
+  --glow: rgba(234, 88, 12, 0.15);
 }
 
 body.light-mode .dashboard.model-llama {
   --bg-dashboard: linear-gradient(135deg, #f5f3ff, #ede9fe);
+  --accent-blue: #7c3aed;
+  --accent-purple: #a78bfa;
+  --glow: rgba(124, 58, 237, 0.15);
 }
+
