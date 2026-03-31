@@ -434,7 +434,7 @@ export default function App() {
   const recentConversations = Object.entries(savedConversations).slice(-5).reverse();
 
   return (
-    <div className="dashboard">
+    <div className={`dashboard model-${selectedModel}`}>
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
 
       {/* Sidebar */}
@@ -696,8 +696,8 @@ export default function App() {
                   <span className="setting-value">3.0.0</span>
                 </div>
                 <div className="setting-item">
-                  <span className="setting-label">Modèles</span>
-                  <span className="setting-value">ChatGPT, Gemini, Mistral, Llama 3</span>
+                  <span className="setting-label">Modèles </span>
+                  <span className="setting-value"> ChatGPT, Gemini, Mistral, Llama 3</span>
                 </div>
               </div>
             </div>
